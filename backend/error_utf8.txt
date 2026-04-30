@@ -1,0 +1,4 @@
+(psycopg2.OperationalError) connection to server at "aws-0-eu-central-1.pooler.supabase.com" (52.59.152.35), port 6543 failed: FATAL:  Tenant or user not found
+connection to server at "aws-0-eu-central-1.pooler.supabase.com" (52.59.152.35), port 6543 failed: FATAL:  Tenant or user not found
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
