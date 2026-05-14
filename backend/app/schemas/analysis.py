@@ -26,5 +26,6 @@ class AnalysisResponse(BaseModel):
     status: str
     created_at: datetime
     diagnosis: Optional[DiagnosisSchema] = None
+    disclaimer: str
     
     model_config = ConfigDict(from_attributes=True)
