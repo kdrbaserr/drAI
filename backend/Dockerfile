@@ -6,7 +6,7 @@ WORKDIR /app
 
 # İşletim sistemi seviyesindeki bağımlılıkları yükle (gerekliyse)
 RUN apt-get update && apt-get install -y \
-    build-essential \
+    build-essential \ 
     && rm -rf /var/lib/apt/lists/*
 
 # Sadece requirements dosyasını kopyala (Docker cache'ini verimli kullanmak için)

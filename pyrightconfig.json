@@ -1,0 +1,12 @@
+{
+    "venvPath": "c:\\Users\\kadir\\.gemini\\antigravity\\scratch\\DrAI",
+    "venv": ".venv",
+    "extraPaths": [
+        "backend"
+    ],
+    "executionEnvironments": [
+        {
+            "root": "backend"
+        }
+    ]
+}

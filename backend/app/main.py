@@ -1,23 +1,28 @@
 from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from app.routers import auth, analyze
-from app.database import engine, Base, get_db
+from app.routers import auth, analyze, history, results, model
+from app.database import get_db
+from app.schemas.core import HealthResponse
 
 # Create database tables
-import app.models  # Ensure models are imported before creating tables
-Base.metadata.create_all(bind=engine)
+from app import models  # Ensure models are imported before creating tables
+# Base.metadata.create_all(bind=engine) # Geçici olarak kapatıldı
 
-app = FastAPI(title="ECG Analysis API")
+
+app = FastAPI(title="DrAI Analysis API", description="API for ECG and EEG Analysis")
 
 app.include_router(auth.router)
 app.include_router(analyze.router)
+app.include_router(history.router)
+app.include_router(results.router)
+app.include_router(model.router)
 
-@app.get("/")
+@app.get("/health", response_model=HealthResponse, tags=["system"])
 def health_check():
     return {"status": "alive", "message": "Fırat Software Engineering ECG Project is running!"}
 
-@app.get("/db-test")
+@app.get("/db-test", tags=["system"])
 def test_db_connection(db: Session = Depends(get_db)):
     try:
         # Basit bir SQL sorgusu çalıştırarak bağlantıyı doğrula

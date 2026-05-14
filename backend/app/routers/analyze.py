@@ -5,30 +5,24 @@ from app.database import get_db
 from app.models.analysis import Analysis
 from app.models.diagnosis import Diagnosis
 from app.models.user import User
-from app.schemas.analysis import AnalysisCreate, AnalysisResponse
-from typing import List
+from app.schemas.analysis import AnalysisResponse, ECGAnalysisCreate, EEGAnalysisCreate
+import random
 
 router = APIRouter(prefix="/analyze", tags=["analyze"])
 
 @router.post("/ecg", response_model=AnalysisResponse)
 def analyze_ecg(
-    request: AnalysisCreate,
-    current_user_data: dict = Depends(get_current_user), 
+    request: ECGAnalysisCreate,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
     Accepts raw ECG data, runs a mock diagnosis, and securely logs it into the Supabase database.
     """
-    # Grab the mapped user from db
-    user = db.query(User).filter(User.username == current_user_data["username"]).first()
-
-    # Step 1: Commit Analysis Base
-    new_analysis = Analysis(user_id=user.id, data=request.data, status="completed")
+    new_analysis = Analysis(user_id=current_user.id, analysis_type="ecg", data=request.data, status="completed")
     db.add(new_analysis)
-    db.flush() # Gather primary key ID without releasing session
+    db.flush() 
     
-    # Step 2: Create Mock Diagnosis Tied to Analysis
-    import random
     mock_options = ["Normal Sinus Rhythm", "Atrial Fibrillation", "Bradycardia", "Tachycardia"]
     diagnosis = Diagnosis(
         analysis_id=new_analysis.id,
@@ -42,14 +36,28 @@ def analyze_ecg(
 
     return new_analysis
 
-@router.get("/history", response_model=List[AnalysisResponse])
-def get_analysis_history(
-    current_user_data: dict = Depends(get_current_user),
+@router.post("/eeg", response_model=AnalysisResponse)
+def analyze_eeg(
+    request: EEGAnalysisCreate,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    Fetches the full chronologically sorted history of analyses performed by the authenticated user.
+    Accepts raw EEG data, runs a mock diagnosis, and securely logs it into the Supabase database.
     """
-    user = db.query(User).filter(User.username == current_user_data["username"]).first()
-    analyses = db.query(Analysis).filter(Analysis.user_id == user.id).order_by(Analysis.created_at.desc()).all()
-    return analyses
+    new_analysis = Analysis(user_id=current_user.id, analysis_type="eeg", data=request.data, status="completed")
+    db.add(new_analysis)
+    db.flush() 
+    
+    mock_options = ["Normal Brain Activity", "Epileptiform Discharges", "Slow Wave Activity"]
+    diagnosis = Diagnosis(
+        analysis_id=new_analysis.id,
+        result=random.choice(mock_options),
+        confidence=round(random.uniform(75.5, 99.9), 2),
+        details="Generated algorithmically via mock parameters."
+    )
+    db.add(diagnosis)
+    db.commit()
+    db.refresh(new_analysis)
+
+    return new_analysis
