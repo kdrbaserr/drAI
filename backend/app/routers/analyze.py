@@ -1,35 +1,81 @@
-from fastapi import APIRouter, Depends
+import os
+import shutil
+import tempfile
+from fastapi import APIRouter, Depends, UploadFile, File
 from sqlalchemy.orm import Session
 from app.routers.auth import get_current_user
 from app.database import get_db
 from app.models.analysis import Analysis
 from app.models.diagnosis import Diagnosis
 from app.models.user import User
-from app.schemas.analysis import AnalysisCreate, AnalysisResponse
-from typing import List
+from app.schemas.analysis import AnalysisResponse, ECGAnalysisCreate, EEGAnalysisCreate
+from app.ml.inference.ecg import predict_ecg
+import random
 
 router = APIRouter(prefix="/analyze", tags=["analyze"])
 
 @router.post("/ecg", response_model=AnalysisResponse)
-def analyze_ecg(
-    request: AnalysisCreate,
-    current_user_data: dict = Depends(get_current_user), 
+async def analyze_ecg(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
-    Accepts raw ECG data, runs a mock diagnosis, and securely logs it into the Supabase database.
+    Accepts an ECG file upload, runs inference, and securely logs it into the Supabase database.
     """
-    # Grab the mapped user from db
-    user = db.query(User).filter(User.username == current_user_data["username"]).first()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".dat") as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = tmp.name
 
-    # Step 1: Commit Analysis Base
-    new_analysis = Analysis(user_id=user.id, data=request.data, status="completed")
+    try:
+        inference_result = predict_ecg(tmp_path)
+        
+        file_metadata = {
+            "filename": file.filename,
+            "content_type": file.content_type,
+            "inference_status": inference_result.get("status")
+        }
+        
+        new_analysis = Analysis(
+            user_id=current_user.id, 
+            analysis_type="ecg", 
+            data=file_metadata, 
+            status="completed"
+        )
+        db.add(new_analysis)
+        db.flush() 
+        
+        diagnosis = Diagnosis(
+            analysis_id=new_analysis.id,
+            result=inference_result.get("prediction", "Unknown"),
+            confidence=inference_result.get("confidence", 0.0) * 100,
+            details=f"Model Version: {inference_result.get('model_version', 'N/A')}"
+        )
+        db.add(diagnosis)
+        db.commit()
+        db.refresh(new_analysis)
+        
+        new_analysis.disclaimer = "BU SİSTEM BİR YAPAY ZEKA ASİSTANIDIR VE KESİN TIBBİ TANI KOYMAZ. LÜTFEN BİR HEKİME DANIŞINIZ."
+        return new_analysis
+        
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+@router.post("/eeg", response_model=AnalysisResponse)
+def analyze_eeg(
+    request: EEGAnalysisCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Accepts raw EEG data, runs a mock diagnosis, and securely logs it into the Supabase database.
+    """
+    new_analysis = Analysis(user_id=current_user.id, analysis_type="eeg", data=request.data, status="completed")
     db.add(new_analysis)
-    db.flush() # Gather primary key ID without releasing session
+    db.flush() 
     
-    # Step 2: Create Mock Diagnosis Tied to Analysis
-    import random
-    mock_options = ["Normal Sinus Rhythm", "Atrial Fibrillation", "Bradycardia", "Tachycardia"]
+    mock_options = ["Normal Brain Activity", "Epileptiform Discharges", "Slow Wave Activity"]
     diagnosis = Diagnosis(
         analysis_id=new_analysis.id,
         result=random.choice(mock_options),
@@ -39,17 +85,6 @@ def analyze_ecg(
     db.add(diagnosis)
     db.commit()
     db.refresh(new_analysis)
-
+    
+    new_analysis.disclaimer = "BU SİSTEM BİR YAPAY ZEKA ASİSTANIDIR VE KESİN TIBBİ TANI KOYMAZ. LÜTFEN BİR HEKİME DANIŞINIZ."
     return new_analysis
-
-@router.get("/history", response_model=List[AnalysisResponse])
-def get_analysis_history(
-    current_user_data: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Fetches the full chronologically sorted history of analyses performed by the authenticated user.
-    """
-    user = db.query(User).filter(User.username == current_user_data["username"]).first()
-    analyses = db.query(Analysis).filter(Analysis.user_id == user.id).order_by(Analysis.created_at.desc()).all()
-    return analyses
