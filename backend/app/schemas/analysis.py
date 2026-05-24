@@ -2,10 +2,15 @@ from pydantic import BaseModel, ConfigDict
 from typing import Dict, Any, Optional
 from datetime import datetime
 
-MEDICAL_DISCLAIMER = (
-    "BU SISTEM BIR YAPAY ZEKA ASISTANIDIR VE KESIN TIBBI TANI KOYMAZ. "
-    "LUTFEN BIR HEKIME DANISINIZ."
+PATIENT_DATA_WARNING = (
+    "Hasta verileri hassastir; yalnizca yetkili kisilerce ve uygun izinlerle "
+    "islenmelidir."
 )
+CLINICAL_DECISION_SUPPORT_WARNING = (
+    "Bu sistem klinik karar destek amaclidir; kesin tani veya tedavi onerisi "
+    "yerine gecmez. Lutfen bir hekime danisiniz."
+)
+MEDICAL_DISCLAIMER = CLINICAL_DECISION_SUPPORT_WARNING
 
 class DiagnosisSchema(BaseModel):
     result: str
@@ -31,6 +36,8 @@ class AnalysisResponse(BaseModel):
     status: str
     created_at: datetime
     diagnosis: Optional[DiagnosisSchema] = None
+    patient_data_warning: str = PATIENT_DATA_WARNING
+    clinical_decision_support_warning: str = CLINICAL_DECISION_SUPPORT_WARNING
     disclaimer: str = MEDICAL_DISCLAIMER
     
     model_config = ConfigDict(from_attributes=True)
