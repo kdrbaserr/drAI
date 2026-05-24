@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends
+from fastapi import APIRouter, Depends, FastAPI
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.routers import auth, analyze, history, results, model
@@ -17,6 +17,14 @@ app.include_router(analyze.router)
 app.include_router(history.router)
 app.include_router(results.router)
 app.include_router(model.router)
+
+api_v1 = APIRouter(prefix="/api/v1")
+api_v1.include_router(auth.router)
+api_v1.include_router(analyze.router)
+api_v1.include_router(history.router)
+api_v1.include_router(results.router)
+api_v1.include_router(model.router)
+app.include_router(api_v1)
 
 @app.get("/health", response_model=HealthResponse, tags=["system"])
 def health_check():

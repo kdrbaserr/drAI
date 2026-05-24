@@ -7,12 +7,13 @@ Input: EDF file converted to 68 channels with 512 samples per channel.
 
 import logging
 import os
+from pathlib import Path
 
 import numpy as np
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 
 BASE_MODEL_ID = "AutonLab/MOMENT-1-small"
 ADAPTER_ID = "kdrbaserr/EEG-ECG-READER"
@@ -120,12 +121,17 @@ def _preprocess_edf(file_path: str) -> np.ndarray:
 
 def predict_eeg(file_path: str) -> dict:
     """Run EEG motor-imagery classification on an uploaded EDF file."""
+    preprocessing_info = {
+        "seq_len": SEQ_LEN,
+        "n_channels": N_CHANNELS,
+        "file": os.path.basename(file_path),
+    }
     try:
         import torch
 
-        model = _load_model()
         signal = _preprocess_edf(file_path)
         tensor = torch.tensor(signal)
+        model = _load_model()
 
         with torch.no_grad():
             output = model(x_enc=tensor)
@@ -155,11 +161,7 @@ def predict_eeg(file_path: str) -> dict:
             "confidence": round(confidence, 4),
             "all_probabilities": all_probs,
             "model_version": MODEL_VERSION,
-            "preprocessing_info": {
-                "seq_len": SEQ_LEN,
-                "n_channels": N_CHANNELS,
-                "file": os.path.basename(file_path),
-            },
+            "preprocessing_info": preprocessing_info,
         }
     except Exception as exc:
         logger.exception("EEG inference failed: %s", exc)
@@ -170,5 +172,5 @@ def predict_eeg(file_path: str) -> dict:
             "all_probabilities": {},
             "model_version": MODEL_VERSION,
             "error": str(exc),
-            "preprocessing_info": {},
+            "preprocessing_info": preprocessing_info,
         }
