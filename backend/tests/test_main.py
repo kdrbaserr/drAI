@@ -1,6 +1,10 @@
 import os
+from datetime import timedelta
 
 os.environ["DATABASE_URL"] = "sqlite://"
+os.environ["JWT_SECRET_KEY"] = "test-only-secret-key-with-sufficient-length"
+os.environ["JWT_ACCESS_TOKEN_EXPIRE_MINUTES"] = "30"
+os.environ["CORS_ORIGINS"] = "http://localhost:3000"
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,8 +17,10 @@ import app.ml.inference.eeg as eeg_inference
 from app.database import Base, get_db
 from app.main import app
 from app.models.analysis import Analysis
+from app.models.audit_log import AuditLog
 from app.models.user import User
 from app.routers.auth import get_current_user
+from app.utils.security import create_access_token
 
 client = TestClient(app)
 
@@ -63,6 +69,53 @@ def test_model_info_lists_ecg_and_eeg_status():
     assert models["eeg"]["version"] == "1.0.0-lora-merged-runtime"
 
 
+def test_cors_allows_configured_frontend_origin():
+    response = client.options(
+        "/api/v1/analyze/eeg",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+
+
+def test_protected_endpoint_requires_token():
+    response = client.get("/api/v1/history")
+
+    assert response.status_code == 401
+
+
+def test_database_diagnostic_endpoint_requires_token():
+    response = client.get("/db-test")
+
+    assert response.status_code == 401
+
+
+def test_expired_token_is_rejected(db_session):
+    app.dependency_overrides.pop(get_current_user, None)
+    token = create_access_token({"sub": "owner"}, expires_delta=timedelta(minutes=-1))
+
+    response = client.get(
+        "/api/v1/history", headers={"Authorization": f"Bearer {token}"}
+    )
+
+    assert response.status_code == 401
+
+
+def test_valid_token_accesses_protected_endpoint(db_session):
+    app.dependency_overrides.pop(get_current_user, None)
+    token = create_access_token({"sub": "owner"})
+
+    response = client.get(
+        "/api/v1/history", headers={"Authorization": f"Bearer {token}"}
+    )
+
+    assert response.status_code == 200
+
+
 def test_eeg_error_is_persisted_as_experimental(db_session, monkeypatch):
     monkeypatch.setattr(
         analyze_router,
@@ -85,9 +138,14 @@ def test_eeg_error_is_persisted_as_experimental(db_session, monkeypatch):
     payload = response.json()
     assert payload["status"] == "experimental"
     assert payload["data"]["model_version"] == "1.0.0-lora-merged-runtime"
+    assert payload["patient_data_warning"]
+    assert payload["clinical_decision_support_warning"]
     persisted = db_session.query(Analysis).filter(Analysis.id == payload["id"]).one()
+    audit_log = db_session.query(AuditLog).filter(AuditLog.analysis_id == persisted.id).one()
     assert persisted.status == "experimental"
     assert persisted.diagnosis.details == "Model Version: 1.0.0-lora-merged-runtime"
+    assert audit_log.model_version == "1.0.0-lora-merged-runtime"
+    assert audit_log.status == "experimental"
 
 
 def test_eeg_preprocessing_runs_before_experimental_model_fallback(monkeypatch):
@@ -113,6 +171,62 @@ def test_eeg_preprocessing_runs_before_experimental_model_fallback(monkeypatch):
     assert result["preprocessing_info"]["n_channels"] == 68
 
 
+def test_invalid_file_extension_is_rejected_and_audited(db_session):
+    response = client.post(
+        "/api/v1/analyze/eeg",
+        files={"file": ("sample.txt", b"invalid", "text/plain")},
+    )
+
+    assert response.status_code == 400
+    audit_log = db_session.query(AuditLog).one()
+    assert audit_log.status == "rejected"
+    assert audit_log.analysis_type == "eeg"
+
+
+def test_file_over_size_limit_is_rejected_and_audited(db_session, monkeypatch):
+    monkeypatch.setattr(analyze_router, "MAX_UPLOAD_SIZE_BYTES", 4)
+
+    response = client.post(
+        "/api/v1/analyze/eeg",
+        files={"file": ("sample.edf", b"12345", "application/octet-stream")},
+    )
+
+    assert response.status_code == 413
+    audit_log = db_session.query(AuditLog).one()
+    assert audit_log.status == "rejected"
+
+
+def test_unexpected_inference_failure_is_audited(db_session, monkeypatch):
+    def fail_inference(_):
+        raise RuntimeError("unexpected failure")
+
+    monkeypatch.setattr(analyze_router, "predict_eeg", fail_inference)
+
+    response = client.post(
+        "/api/v1/analyze/eeg",
+        files={"file": ("sample.edf", b"valid-upload", "application/octet-stream")},
+    )
+
+    assert response.status_code == 500
+    audit_log = db_session.query(AuditLog).one()
+    assert audit_log.status == "failed"
+
+
+def test_ecg_placeholder_is_persisted_as_experimental(db_session):
+    response = client.post(
+        "/api/v1/analyze/ecg",
+        files={"file": ("sample.dat", b"placeholder", "application/octet-stream")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "experimental"
+    assert payload["diagnosis"]["result"] == "Model unavailable"
+    audit_log = db_session.query(AuditLog).one()
+    assert audit_log.status == "experimental"
+    assert audit_log.model_version == "1.0.0"
+
+
 def test_history_and_results_are_restricted_to_current_user(db_session):
     owned = Analysis(user_id=1, analysis_type="eeg", data={}, status="completed")
     foreign = Analysis(user_id=2, analysis_type="eeg", data={}, status="completed")
@@ -128,4 +242,6 @@ def test_history_and_results_are_restricted_to_current_user(db_session):
     assert history.status_code == 200
     assert [entry["id"] for entry in history.json()] == [owned.id]
     assert own_result.status_code == 200
+    assert own_result.json()["patient_data_warning"]
+    assert own_result.json()["clinical_decision_support_warning"]
     assert foreign_result.status_code == 404

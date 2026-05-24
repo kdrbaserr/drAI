@@ -1,4 +1,7 @@
+import os
+
 from fastapi import APIRouter, Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.routers import auth, analyze, history, results, model
@@ -11,6 +14,21 @@ from app import models  # Ensure models are imported before creating tables
 
 
 app = FastAPI(title="DrAI Analysis API", description="API for ECG and EEG Analysis")
+
+allowed_origins = [
+    origin.strip()
+    for origin in os.environ.get(
+        "CORS_ORIGINS", "http://localhost:3000,http://localhost:5173"
+    ).split(",")
+    if origin.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+)
 
 app.include_router(auth.router)
 app.include_router(analyze.router)
@@ -31,7 +49,10 @@ def health_check():
     return {"status": "alive", "message": "Fırat Software Engineering ECG Project is running!"}
 
 @app.get("/db-test", tags=["system"])
-def test_db_connection(db: Session = Depends(get_db)):
+def test_db_connection(
+    db: Session = Depends(get_db),
+    _current_user=Depends(auth.get_current_user),
+):
     try:
         # Basit bir SQL sorgusu çalıştırarak bağlantıyı doğrula
         db.execute(text("SELECT 1"))

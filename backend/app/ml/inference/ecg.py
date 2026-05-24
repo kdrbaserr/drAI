@@ -39,11 +39,11 @@ def predict_ecg(file_path: str):
         # Fallback or error if model doesn't exist
         pass
 
-    # Dummy response mimicking a successful prediction
+    # Until deployable weights are supplied, do not represent this as a result.
     return {
-        "status": "success",
+        "status": "experimental",
         "file_processed": file_path,
-        "prediction": labels.get("0", "Normal Sinus Rhythm"), # Defaulting to first label
-        "confidence": 0.98,
+        "prediction": "Model unavailable",
+        "confidence": 0.0,
         "model_version": metadata.get("version", "unknown")
     }

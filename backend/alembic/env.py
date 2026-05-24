@@ -1,5 +1,6 @@
 import os
 import sys
+from pathlib import Path
 from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -10,11 +11,11 @@ from sqlalchemy import pool
 from alembic import context
 
 from app.database import Base
-import app.models  # This imports User, Analysis, Diagnosis
+import app.models  # This imports all mapped database models.
 
 config = context.config
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 db_url = os.environ.get("DATABASE_URL")
 if db_url and db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
