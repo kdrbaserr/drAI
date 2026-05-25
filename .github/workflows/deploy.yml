@@ -5,6 +5,12 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      push_image_only:
+        description: Build and push the image without updating ECS (first-time setup)
+        required: false
+        type: boolean
+        default: false
 
 env:
   ECS_TASK_DEFINITION: aws/ecs-task-definition.json
@@ -44,6 +50,7 @@ jobs:
           echo "image=$IMAGE_URI" >> "$GITHUB_OUTPUT"
 
       - name: Configure ECS task definition
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.push_image_only }}
         env:
           AWS_REGION_VALUE: ${{ secrets.AWS_REGION }}
           ECS_EXECUTION_ROLE_ARN: ${{ secrets.ECS_EXECUTION_ROLE_ARN }}
@@ -71,6 +78,7 @@ jobs:
             "$ECS_TASK_DEFINITION" > task-definition.resolved.json
 
       - name: Set deployed image in task definition
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.push_image_only }}
         id: task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
@@ -79,6 +87,7 @@ jobs:
           image: ${{ steps.build-image.outputs.image }}
 
       - name: Deploy Amazon ECS task definition
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.push_image_only }}
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
           task-definition: ${{ steps.task-def.outputs.task-definition }}
