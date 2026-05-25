@@ -24,6 +24,35 @@ Create these resources in one AWS region:
 
 The task definition template is in `aws/ecs-task-definition.json`.
 
+## Paused Deployment Status - May 25, 2026
+
+Deployment is intentionally paused to avoid keeping billable public compute
+running before the presentation.
+
+Already created in `eu-north-1` (Europe/Stockholm):
+
+- Private ECR repository: `drai-api`
+- CloudWatch Logs log group: `/ecs/drai-api`
+- Secrets Manager secret: `drai/DATABASE_URL`
+
+Do not create or leave running until the presentation deployment window:
+
+- ECS Fargate service/tasks
+- Application Load Balancer, target group, or public listener
+- Public IPv4-backed runtime resources
+
+Resume checklist:
+
+1. Create the remaining secrets: `drai/HF_TOKEN` and `drai/JWT_SECRET_KEY`.
+2. Create the ECS task execution role and app task role.
+3. Create an ECS cluster.
+4. Add required GitHub Actions secrets and the `CORS_ORIGINS` variable.
+5. Run the deploy workflow with `push_image_only` enabled to seed ECR.
+6. Create the task definition, Fargate service, target group, and ALB.
+7. Run the normal workflow deployment and execute the public smoke test.
+8. After the presentation, delete the ECS service and ALB when a continuously
+   available demo endpoint is no longer required.
+
 ## Database And Secret Safety
 
 The application may continue using the existing Supabase PostgreSQL database;
