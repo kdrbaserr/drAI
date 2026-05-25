@@ -24,6 +24,17 @@ Create these resources in one AWS region:
 
 The task definition template is in `aws/ecs-task-definition.json`.
 
+## Database And Secret Safety
+
+The application may continue using the existing Supabase PostgreSQL database;
+an AWS RDS database is not required for this deployment. Store the Supabase
+connection string as the `drai/DATABASE_URL` secret and include
+`?sslmode=require`.
+
+Never commit database credentials or tokens. Because an earlier project
+revision included a database connection password, reset that Supabase database
+password before creating the AWS secret or making the API public.
+
 ## GitHub Repository Settings
 
 Under `Settings > Secrets and variables > Actions`, define these repository
@@ -55,11 +66,24 @@ Set `CORS_ORIGINS` to the deployed frontend origin, for example:
 https://your-frontend.example.com
 ```
 
-## Deployment
+## First-Time Deployment
 
 The workflow at `.github/workflows/deploy.yml` runs on pushes to `main`.
 It builds the image, pushes immutable and `latest` tags to ECR, renders the
 task definition, and updates the ECS service.
+
+For the initial setup, the ECS service cannot be created until ECR has an
+image. Complete setup in this order:
+
+1. Create ECR, the log group, the three Secrets Manager secrets, IAM roles,
+   and the ECS cluster.
+2. Run the GitHub Actions workflow manually with `push_image_only` enabled.
+   This builds the backend image and pushes it to ECR without requiring an
+   existing ECS service.
+3. Use the `latest` ECR image to create the Fargate task, ALB, target group,
+   and ECS service.
+4. Add `ECS_CLUSTER` and `ECS_SERVICE` to GitHub repository secrets, then run
+   the workflow again with `push_image_only` disabled.
 
 The database is already migrated through revision `0001_create_audit_logs`.
 For future database revisions, run Alembic as a one-off ECS task before
