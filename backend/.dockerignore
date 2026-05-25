@@ -55,6 +55,3 @@ error.log
 # pytest
 .pytest_cache/
 pytest_output.txt
-
-# DB
-alembic.ini
