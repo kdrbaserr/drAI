@@ -1,16 +1,25 @@
-import sqlalchemy
-try:
-    url = 'postgresql://postgres:Kdrbaserr44.@aws-0-eu-central-1.pooler.supabase.com:6543/postgres?sslmode=require'
-    engine = sqlalchemy.create_engine(url)
-    conn = engine.connect()
-    print('SUCCESS with dot + ssl + POOLER!')
-except Exception as e:
-    print('ERROR1:', str(e))
+"""Validate the configured database connection without embedding credentials."""
 
-try:
-    url = 'postgresql://postgres.qysagkxmiaijspeknofm:Kdrbaserr44.@aws-0-eu-central-1.pooler.supabase.com:6543/postgres?sslmode=require'
-    engine = sqlalchemy.create_engine(url)
-    conn = engine.connect()
-    print('SUCCESS with DOT + ssl + POOLER + project ref user!')
-except Exception as e:
-    print('ERROR2:', str(e))
+import os
+from pathlib import Path
+
+import sqlalchemy
+from dotenv import load_dotenv
+
+
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
+
+def main() -> None:
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is not configured.")
+
+    engine = sqlalchemy.create_engine(database_url)
+    with engine.connect() as connection:
+        connection.execute(sqlalchemy.text("SELECT 1"))
+    print("Database connection succeeded.")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,69 @@
+{
+  "family": "drai-api",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "2048",
+  "memory": "4096",
+  "executionRoleArn": "ECS_EXECUTION_ROLE_ARN",
+  "taskRoleArn": "ECS_TASK_ROLE_ARN",
+  "containerDefinitions": [
+    {
+      "name": "drai-api",
+      "image": "IMAGE_URI",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8000,
+          "hostPort": 8000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "JWT_ACCESS_TOKEN_EXPIRE_MINUTES",
+          "value": "30"
+        },
+        {
+          "name": "MAX_UPLOAD_SIZE_MB",
+          "value": "10"
+        },
+        {
+          "name": "CORS_ORIGINS",
+          "value": "CORS_ORIGINS_VALUE"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "DATABASE_URL",
+          "valueFrom": "DATABASE_URL_SECRET_ARN"
+        },
+        {
+          "name": "HF_TOKEN",
+          "valueFrom": "HF_TOKEN_SECRET_ARN"
+        },
+        {
+          "name": "JWT_SECRET_KEY",
+          "valueFrom": "JWT_SECRET_KEY_SECRET_ARN"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/drai-api",
+          "awslogs-region": "AWS_REGION_VALUE",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\" || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    }
+  ]
+}

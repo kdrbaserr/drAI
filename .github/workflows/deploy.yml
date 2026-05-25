@@ -1,15 +1,18 @@
-name: Build and Push Docker Image to AWS ECR
+name: Deploy Backend to AWS ECS Fargate
 
 on:
   push:
     branches:
       - main
-      - Feature/Docker-Deployment
-  workflow_dispatch: # Manuel tetikleme için
+  workflow_dispatch:
+
+env:
+  ECS_TASK_DEFINITION: aws/ecs-task-definition.json
+  ECS_CONTAINER_NAME: drai-api
 
 jobs:
-  build-and-push:
-    name: Build & Push to ECR
+  deploy:
+    name: Build image and deploy service
     runs-on: ubuntu-latest
 
     steps:
@@ -27,14 +30,58 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build, tag, and push image to Amazon ECR
+      - name: Build and push backend image
+        id: build-image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
-          IMAGE_TAG: latest # İsteğe bağlı olarak ${{ github.sha }} kullanılabilir
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          # Backend klasörüne git ve build al
-          cd backend
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "IMAGE $IMAGE_TAG successfully pushed to $ECR_REGISTRY/$ECR_REPOSITORY"
+          IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker build -t "$IMAGE_URI" -t "$ECR_REGISTRY/$ECR_REPOSITORY:latest" ./backend
+          docker push "$IMAGE_URI"
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:latest"
+          echo "image=$IMAGE_URI" >> "$GITHUB_OUTPUT"
+
+      - name: Configure ECS task definition
+        env:
+          AWS_REGION_VALUE: ${{ secrets.AWS_REGION }}
+          ECS_EXECUTION_ROLE_ARN: ${{ secrets.ECS_EXECUTION_ROLE_ARN }}
+          ECS_TASK_ROLE_ARN: ${{ secrets.ECS_TASK_ROLE_ARN }}
+          DATABASE_URL_SECRET_ARN: ${{ secrets.DATABASE_URL_SECRET_ARN }}
+          HF_TOKEN_SECRET_ARN: ${{ secrets.HF_TOKEN_SECRET_ARN }}
+          JWT_SECRET_KEY_SECRET_ARN: ${{ secrets.JWT_SECRET_KEY_SECRET_ARN }}
+          CORS_ORIGINS_VALUE: ${{ vars.CORS_ORIGINS }}
+        run: |
+          jq \
+            --arg executionRoleArn "$ECS_EXECUTION_ROLE_ARN" \
+            --arg taskRoleArn "$ECS_TASK_ROLE_ARN" \
+            --arg databaseSecret "$DATABASE_URL_SECRET_ARN" \
+            --arg hfSecret "$HF_TOKEN_SECRET_ARN" \
+            --arg jwtSecret "$JWT_SECRET_KEY_SECRET_ARN" \
+            --arg region "$AWS_REGION_VALUE" \
+            --arg cors "$CORS_ORIGINS_VALUE" \
+            '.executionRoleArn = $executionRoleArn
+              | .taskRoleArn = $taskRoleArn
+              | .containerDefinitions[0].secrets[0].valueFrom = $databaseSecret
+              | .containerDefinitions[0].secrets[1].valueFrom = $hfSecret
+              | .containerDefinitions[0].secrets[2].valueFrom = $jwtSecret
+              | .containerDefinitions[0].logConfiguration.options["awslogs-region"] = $region
+              | .containerDefinitions[0].environment[2].value = $cors' \
+            "$ECS_TASK_DEFINITION" > task-definition.resolved.json
+
+      - name: Set deployed image in task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.resolved.json
+          container-name: ${{ env.ECS_CONTAINER_NAME }}
+          image: ${{ steps.build-image.outputs.image }}
+
+      - name: Deploy Amazon ECS task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ secrets.ECS_SERVICE }}
+          cluster: ${{ secrets.ECS_CLUSTER }}
+          wait-for-service-stability: true
