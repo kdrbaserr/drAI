@@ -142,7 +142,7 @@ const ALLOWED_UPLOAD_EXTENSIONS = {
 };
 
 function HomeScreen({ navigation }) {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
 
   return (
     <SafeAreaView style={styles.homeContainer}>
@@ -156,9 +156,183 @@ function HomeScreen({ navigation }) {
       </View>
       <View style={styles.homeActions}>
         <PrimaryButton title="Analiz yukle" onPress={() => navigation.navigate('Upload')} />
-        <PrimaryButton title="Cikis yap" onPress={logout} variant="danger" />
+        <PrimaryButton title="Gecmis analizler" onPress={() => navigation.navigate('History')} />
+        <PrimaryButton title="Profil" onPress={() => navigation.navigate('Profile')} variant="secondary" />
       </View>
     </SafeAreaView>
+  );
+}
+
+function HistoryScreen({ navigation }) {
+  const [analyses, setAnalyses] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState('');
+
+  const loadHistory = React.useCallback(async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const response = await api.get('/history');
+      setAnalyses(Array.isArray(response.data) ? response.data : []);
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Gecmis analizler yuklenemedi.'));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    loadHistory();
+    const unsubscribe = navigation.addListener('focus', loadHistory);
+    return unsubscribe;
+  }, [loadHistory, navigation]);
+
+  return (
+    <SafeAreaView style={styles.screenContainer}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.topBar}>
+          <Pressable onPress={() => navigation.goBack()} hitSlop={8}>
+            <Text style={styles.backButton}>Geri</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.uploadHeader}>
+          <Text style={styles.homeEyebrow}>Gecmis</Text>
+          <Text style={styles.homeTitle}>Analizler</Text>
+          <Text style={styles.homeSubtitle}>
+            Tamamlanan analizlerin tarih, sinyal turu, ana sonuc, confidence ve model versiyonu.
+          </Text>
+        </View>
+
+        {loading ? (
+          <View style={styles.inlineLoading}>
+            <ActivityIndicator color="#0f766e" />
+          </View>
+        ) : null}
+
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+        {!loading && !error && analyses.length === 0 ? (
+          <View style={styles.emptyBox}>
+            <Text style={styles.emptyTitle}>Henuz analiz yok</Text>
+            <Text style={styles.emptyText}>Ilk analizini yuklediginde burada listelenecek.</Text>
+          </View>
+        ) : null}
+
+        <View style={styles.historyList}>
+          {analyses.map((analysis) => (
+            <HistoryCard key={analysis.id} analysis={analysis} />
+          ))}
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function HistoryCard({ analysis }) {
+  const diagnosis = analysis.diagnosis || {};
+  const prediction = diagnosis.result || analysis.data?.prediction || 'Bilinmiyor';
+  const confidence = normalizeConfidence(diagnosis.confidence ?? analysis.data?.confidence ?? 0);
+  const modelVersion = analysis.data?.model_version || parseModelVersion(diagnosis.details) || 'unknown';
+
+  return (
+    <View style={styles.historyCard}>
+      <View style={styles.historyCardHeader}>
+        <Text style={styles.historySignal}>{analysis.analysis_type?.toUpperCase() || 'ANALIZ'}</Text>
+        <Text style={styles.historyDate}>{formatDate(analysis.created_at)}</Text>
+      </View>
+      <Text style={styles.historyResult}>{prediction}</Text>
+      <View style={styles.historyMetaRow}>
+        <Text style={styles.historyMeta}>Confidence: {Math.round(confidence * 100)}%</Text>
+        <Text style={styles.historyMeta}>Model: {modelVersion}</Text>
+      </View>
+    </View>
+  );
+}
+
+function ProfileScreen({ navigation }) {
+  const { user, logout } = useAuth();
+  const [modelInfo, setModelInfo] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState('');
+
+  React.useEffect(() => {
+    async function loadModelInfo() {
+      setError('');
+      setLoading(true);
+      try {
+        const response = await api.get('/model/info');
+        setModelInfo(response.data?.models || {});
+      } catch (err) {
+        setError(getApiErrorMessage(err, 'Model bilgisi yuklenemedi.'));
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadModelInfo();
+  }, []);
+
+  return (
+    <SafeAreaView style={styles.screenContainer}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.topBar}>
+          <Pressable onPress={() => navigation.goBack()} hitSlop={8}>
+            <Text style={styles.backButton}>Geri</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.uploadHeader}>
+          <Text style={styles.homeEyebrow}>Profil</Text>
+          <Text style={styles.homeTitle}>Kullanici bilgisi</Text>
+          <Text style={styles.homeSubtitle}>Oturum, model durumu ve KVKK bilgilendirmesi.</Text>
+        </View>
+
+        <View style={styles.infoPanel}>
+          <Text style={styles.sectionTitle}>Kullanici</Text>
+          <InfoRow label="Kullanici adi" value={user || 'Bilinmiyor'} />
+          <InfoRow label="Oturum" value="Aktif" />
+        </View>
+
+        <View style={styles.infoPanel}>
+          <Text style={styles.sectionTitle}>Model info</Text>
+          {loading ? <ActivityIndicator color="#0f766e" /> : null}
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          {!loading && !error
+            ? Object.entries(modelInfo || {}).map(([key, model]) => (
+                <View key={key} style={styles.modelBlock}>
+                  <Text style={styles.modelName}>{model.name || key.toUpperCase()}</Text>
+                  <InfoRow label="Sinyal" value={key.toUpperCase()} />
+                  <InfoRow label="Versiyon" value={model.version || 'unknown'} />
+                  <InfoRow label="Durum" value={model.status || 'unknown'} />
+                  <Text style={styles.modelDescription}>{model.description || ''}</Text>
+                </View>
+              ))
+            : null}
+        </View>
+
+        <View style={styles.infoPanel}>
+          <Text style={styles.sectionTitle}>KVKK</Text>
+          <Text style={styles.kvkkText}>
+            Kisisel ve saglik verileri KVKK kapsaminda hassas veri niteligindedir. DrAI,
+            analiz verilerini yalnizca klinik karar destek amaciyla ve yetkili kullanici
+            oturumu kapsaminda isler. Sonuclar kesin tani veya tedavi onerisi yerine gecmez;
+            tibbi kararlar icin hekime danisilmalidir.
+          </Text>
+        </View>
+
+        <PrimaryButton title="Cikis yap" onPress={logout} variant="danger" />
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function InfoRow({ label, value }) {
+  return (
+    <View style={styles.infoRow}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={styles.infoValue}>{value}</Text>
+    </View>
   );
 }
 
@@ -452,6 +626,7 @@ function PrimaryButton({ title, onPress, loading, disabled, variant = 'primary' 
       style={({ pressed }) => [
         styles.button,
         variant === 'danger' && styles.dangerButton,
+        variant === 'secondary' && styles.secondaryButton,
         isDisabled && styles.disabledButton,
         pressed && !isDisabled && styles.pressedButton,
       ]}
@@ -486,6 +661,8 @@ function RootNavigator() {
             <Stack.Screen name="Home" component={HomeScreen} />
             <Stack.Screen name="Upload" component={UploadScreen} />
             <Stack.Screen name="Result" component={ResultScreen} />
+            <Stack.Screen name="History" component={HistoryScreen} />
+            <Stack.Screen name="Profile" component={ProfileScreen} />
           </>
         ) : (
           <>
@@ -650,6 +827,9 @@ const styles = StyleSheet.create({
   },
   dangerButton: {
     backgroundColor: '#dc2626',
+  },
+  secondaryButton: {
+    backgroundColor: '#334155',
   },
   disabledButton: {
     opacity: 0.55,
@@ -921,5 +1101,119 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     borderRadius: 4,
     flex: 1,
+  },
+  inlineLoading: {
+    alignItems: 'center',
+    minHeight: 48,
+    justifyContent: 'center',
+  },
+  emptyBox: {
+    backgroundColor: '#fff',
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 6,
+    padding: 16,
+  },
+  emptyTitle: {
+    color: '#0f172a',
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  emptyText: {
+    color: '#64748b',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  historyList: {
+    gap: 12,
+  },
+  historyCard: {
+    backgroundColor: '#fff',
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 10,
+    padding: 14,
+  },
+  historyCardHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  historySignal: {
+    color: '#0f766e',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  historyDate: {
+    color: '#64748b',
+    flexShrink: 1,
+    fontSize: 13,
+    textAlign: 'right',
+  },
+  historyResult: {
+    color: '#0f172a',
+    fontSize: 20,
+    fontWeight: '900',
+    lineHeight: 25,
+  },
+  historyMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  historyMeta: {
+    color: '#334155',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  infoPanel: {
+    backgroundColor: '#fff',
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 12,
+    padding: 14,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  infoLabel: {
+    color: '#64748b',
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  infoValue: {
+    color: '#0f172a',
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '800',
+    textAlign: 'right',
+  },
+  modelBlock: {
+    borderTopColor: '#e2e8f0',
+    borderTopWidth: 1,
+    gap: 9,
+    paddingTop: 12,
+  },
+  modelName: {
+    color: '#0f172a',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  modelDescription: {
+    color: '#475569',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  kvkkText: {
+    color: '#475569',
+    fontSize: 14,
+    lineHeight: 21,
   },
 });
