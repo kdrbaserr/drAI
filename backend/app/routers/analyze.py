@@ -116,6 +116,9 @@ def _persist_analysis(
         "inference_status": inference_result.get("status"),
         "preprocessing": inference_result.get("preprocessing_info", {}),
         "model_version": model_version,
+        "prediction": inference_result.get("prediction", "Unknown"),
+        "confidence": inference_result.get("confidence", 0.0),
+        "probabilities": inference_result.get("all_probabilities", {}),
     }
 
     analysis = Analysis(
