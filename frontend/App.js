@@ -1,4 +1,5 @@
 import React from 'react';
+import * as DocumentPicker from 'expo-document-picker';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
@@ -6,11 +7,13 @@ import {
   ActivityIndicator,
   Pressable,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { api, getApiErrorMessage } from './src/api/client';
 import { AuthProvider, useAuth } from './src/auth/AuthContext';
 
 const Stack = createNativeStackNavigator();
@@ -128,7 +131,17 @@ function RegisterScreen({ navigation }) {
   );
 }
 
-function HomeScreen() {
+const SIGNAL_TYPES = [
+  { label: 'EKG', value: 'ecg' },
+  { label: 'EEG', value: 'eeg' },
+];
+
+const ALLOWED_UPLOAD_EXTENSIONS = {
+  ecg: ['csv', 'txt'],
+  eeg: ['edf'],
+};
+
+function HomeScreen({ navigation }) {
   const { user, logout } = useAuth();
 
   return (
@@ -141,7 +154,187 @@ function HomeScreen() {
           olarak eklenecek.
         </Text>
       </View>
-      <PrimaryButton title="Cikis yap" onPress={logout} variant="danger" />
+      <View style={styles.homeActions}>
+        <PrimaryButton title="Analiz yukle" onPress={() => navigation.navigate('Upload')} />
+        <PrimaryButton title="Cikis yap" onPress={logout} variant="danger" />
+      </View>
+    </SafeAreaView>
+  );
+}
+
+function UploadScreen({ navigation }) {
+  const [signalType, setSignalType] = React.useState('ecg');
+  const [file, setFile] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState('');
+  const [result, setResult] = React.useState(null);
+  const [signalMenuOpen, setSignalMenuOpen] = React.useState(false);
+
+  const pickFile = async () => {
+    setError('');
+    setResult(null);
+
+    try {
+      const response = await DocumentPicker.getDocumentAsync({
+        copyToCacheDirectory: true,
+        multiple: false,
+        type: [
+          'text/csv',
+          'text/plain',
+          'application/octet-stream',
+          'application/x-edf',
+          'application/edf',
+        ],
+      });
+
+      if (response.canceled) {
+        return;
+      }
+
+      const selectedFile = response.assets?.[0];
+      if (!selectedFile) {
+        setError('Dosya secilemedi.');
+        return;
+      }
+
+      const extension = getFileExtension(selectedFile.name);
+      if (!['csv', 'txt', 'edf'].includes(extension)) {
+        setError('Sadece .csv, .txt veya .edf dosyasi secebilirsin.');
+        return;
+      }
+
+      setFile(selectedFile);
+    } catch {
+      setError('Dosya secme islemi tamamlanamadi.');
+    }
+  };
+
+  const uploadFile = async () => {
+    if (!file) {
+      setError('Once bir dosya sec.');
+      return;
+    }
+
+    setError('');
+    setResult(null);
+    setLoading(true);
+
+    const extension = getFileExtension(file.name);
+    if (!ALLOWED_UPLOAD_EXTENSIONS[signalType].includes(extension)) {
+      const label = signalType === 'ecg' ? 'EKG' : 'EEG';
+      const allowed = ALLOWED_UPLOAD_EXTENSIONS[signalType].map((item) => `.${item}`).join(', ');
+      setError(`${label} analizi icin ${allowed} dosyasi secmelisin.`);
+      setLoading(false);
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', {
+      uri: file.uri,
+      name: file.name,
+      type: file.mimeType || getMimeType(file.name),
+    });
+
+    try {
+      const response = await api.post(`/analyze/${signalType}`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      setResult(response.data);
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Analiz yuklenemedi.'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <SafeAreaView style={styles.screenContainer}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.topBar}>
+          <Pressable onPress={() => navigation.goBack()} hitSlop={8}>
+            <Text style={styles.backButton}>Geri</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.uploadHeader}>
+          <Text style={styles.homeEyebrow}>Analiz</Text>
+          <Text style={styles.homeTitle}>Sinyal yukle</Text>
+          <Text style={styles.homeSubtitle}>
+            EKG icin CSV veya TXT, EEG icin EDF dosyasi secip analiz endpointine gonder.
+          </Text>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.label}>Sinyal turu</Text>
+          <View>
+            <Pressable
+              style={styles.dropdownButton}
+              onPress={() => setSignalMenuOpen((isOpen) => !isOpen)}
+            >
+              <Text style={styles.dropdownValue}>{getSignalLabel(signalType)}</Text>
+              <Text style={styles.dropdownChevron}>{signalMenuOpen ? '^' : 'v'}</Text>
+            </Pressable>
+            {signalMenuOpen ? (
+              <View style={styles.dropdownMenu}>
+                {SIGNAL_TYPES.map((type) => (
+                  <Pressable
+                    key={type.value}
+                    style={styles.dropdownOption}
+                    onPress={() => {
+                      setSignalType(type.value);
+                      setSignalMenuOpen(false);
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.dropdownOptionText,
+                        signalType === type.value && styles.dropdownOptionTextSelected,
+                      ]}
+                    >
+                      {type.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.label}>Dosya</Text>
+          <Pressable style={styles.filePicker} onPress={pickFile}>
+            <Text style={styles.filePickerTitle}>{file ? file.name : 'Dosya sec'}</Text>
+            <Text style={styles.filePickerMeta}>.csv, .txt, .edf</Text>
+          </Pressable>
+        </View>
+
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+        {result ? (
+          <View style={styles.resultBox}>
+            <Text style={styles.resultTitle}>Analiz tamamlandi</Text>
+            <Text style={styles.resultText}>Durum: {result.status}</Text>
+            <Text style={styles.resultText}>Tip: {result.analysis_type?.toUpperCase()}</Text>
+            {result.diagnosis ? (
+              <>
+                <Text style={styles.resultText}>Sonuc: {result.diagnosis.result}</Text>
+                <Text style={styles.resultText}>
+                  Guven: {Math.round(result.diagnosis.confidence)}%
+                </Text>
+              </>
+            ) : null}
+          </View>
+        ) : null}
+
+        <PrimaryButton
+          title="Analize gonder"
+          onPress={uploadFile}
+          loading={loading}
+          disabled={!file}
+        />
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -214,7 +407,10 @@ function RootNavigator() {
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {token ? (
-          <Stack.Screen name="Home" component={HomeScreen} />
+          <>
+            <Stack.Screen name="Home" component={HomeScreen} />
+            <Stack.Screen name="Upload" component={UploadScreen} />
+          </>
         ) : (
           <>
             <Stack.Screen name="Login" component={LoginScreen} />
@@ -225,6 +421,32 @@ function RootNavigator() {
       <StatusBar style="dark" />
     </NavigationContainer>
   );
+}
+
+function getFileExtension(filename = '') {
+  return filename.split('.').pop()?.toLowerCase() || '';
+}
+
+function getSignalLabel(value) {
+  return SIGNAL_TYPES.find((type) => type.value === value)?.label || 'EKG';
+}
+
+function getMimeType(filename) {
+  const extension = getFileExtension(filename);
+
+  if (extension === 'csv') {
+    return 'text/csv';
+  }
+
+  if (extension === 'txt') {
+    return 'text/plain';
+  }
+
+  if (extension === 'edf') {
+    return 'application/octet-stream';
+  }
+
+  return 'application/octet-stream';
 }
 
 export default function App() {
@@ -332,6 +554,9 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 48,
   },
+  homeActions: {
+    gap: 12,
+  },
   homeEyebrow: {
     color: '#0f766e',
     fontSize: 14,
@@ -347,5 +572,107 @@ const styles = StyleSheet.create({
     color: '#475569',
     fontSize: 16,
     lineHeight: 23,
+  },
+  screenContainer: {
+    backgroundColor: '#f4f7fb',
+    flex: 1,
+  },
+  scrollContent: {
+    gap: 20,
+    padding: 24,
+  },
+  topBar: {
+    alignItems: 'flex-start',
+    minHeight: 32,
+  },
+  backButton: {
+    color: '#0f766e',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  uploadHeader: {
+    gap: 10,
+  },
+  section: {
+    gap: 10,
+  },
+  dropdownButton: {
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderColor: '#cbd5e1',
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 52,
+    paddingHorizontal: 14,
+  },
+  dropdownValue: {
+    color: '#0f172a',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  dropdownChevron: {
+    color: '#64748b',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  dropdownMenu: {
+    backgroundColor: '#fff',
+    borderColor: '#cbd5e1',
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 8,
+    overflow: 'hidden',
+  },
+  dropdownOption: {
+    minHeight: 48,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  dropdownOptionText: {
+    color: '#334155',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  dropdownOptionTextSelected: {
+    color: '#0f766e',
+  },
+  filePicker: {
+    backgroundColor: '#fff',
+    borderColor: '#cbd5e1',
+    borderRadius: 8,
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    gap: 6,
+    minHeight: 92,
+    justifyContent: 'center',
+    padding: 16,
+  },
+  filePickerTitle: {
+    color: '#0f172a',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  filePickerMeta: {
+    color: '#64748b',
+    fontSize: 14,
+  },
+  resultBox: {
+    backgroundColor: '#ecfdf5',
+    borderColor: '#99f6e4',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 6,
+    padding: 14,
+  },
+  resultTitle: {
+    color: '#0f766e',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  resultText: {
+    color: '#334155',
+    fontSize: 14,
   },
 });
