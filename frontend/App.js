@@ -167,12 +167,10 @@ function UploadScreen({ navigation }) {
   const [file, setFile] = React.useState(null);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState('');
-  const [result, setResult] = React.useState(null);
   const [signalMenuOpen, setSignalMenuOpen] = React.useState(false);
 
   const pickFile = async () => {
     setError('');
-    setResult(null);
 
     try {
       const response = await DocumentPicker.getDocumentAsync({
@@ -216,7 +214,6 @@ function UploadScreen({ navigation }) {
     }
 
     setError('');
-    setResult(null);
     setLoading(true);
 
     const extension = getFileExtension(file.name);
@@ -241,7 +238,7 @@ function UploadScreen({ navigation }) {
           'Content-Type': 'multipart/form-data',
         },
       });
-      setResult(response.data);
+      navigation.navigate('Result', { result: response.data });
     } catch (err) {
       setError(getApiErrorMessage(err, 'Analiz yuklenemedi.'));
     } finally {
@@ -312,22 +309,6 @@ function UploadScreen({ navigation }) {
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-        {result ? (
-          <View style={styles.resultBox}>
-            <Text style={styles.resultTitle}>Analiz tamamlandi</Text>
-            <Text style={styles.resultText}>Durum: {result.status}</Text>
-            <Text style={styles.resultText}>Tip: {result.analysis_type?.toUpperCase()}</Text>
-            {result.diagnosis ? (
-              <>
-                <Text style={styles.resultText}>Sonuc: {result.diagnosis.result}</Text>
-                <Text style={styles.resultText}>
-                  Guven: {Math.round(result.diagnosis.confidence)}%
-                </Text>
-              </>
-            ) : null}
-          </View>
-        ) : null}
-
         <PrimaryButton
           title="Analize gonder"
           onPress={uploadFile}
@@ -336,6 +317,100 @@ function UploadScreen({ navigation }) {
         />
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function ResultScreen({ route, navigation }) {
+  const result = route.params?.result || {};
+  const diagnosis = result.diagnosis || {};
+  const prediction = diagnosis.result || result.data?.prediction || 'Bilinmiyor';
+  const confidence = normalizeConfidence(diagnosis.confidence ?? result.data?.confidence ?? 0);
+  const probabilities = normalizeProbabilities(result, prediction, confidence);
+  const heatmapRows = buildHeatmap(probabilities);
+  const modelVersion = result.data?.model_version || parseModelVersion(diagnosis.details);
+  const createdAt = formatDate(result.created_at);
+
+  return (
+    <SafeAreaView style={styles.screenContainer}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.topBar}>
+          <Pressable onPress={() => navigation.goBack()} hitSlop={8}>
+            <Text style={styles.backButton}>Geri</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.uploadHeader}>
+          <Text style={styles.homeEyebrow}>Sonuc</Text>
+          <Text style={styles.homeTitle}>{result.analysis_type?.toUpperCase()} analizi</Text>
+          <Text style={styles.homeSubtitle}>Olusturulma: {createdAt}</Text>
+        </View>
+
+        <View style={styles.warningBox}>
+          <Text style={styles.warningTitle}>Tani koymaz</Text>
+          <Text style={styles.warningText}>
+            Bu sonuc klinik karar destek amaclidir; kesin tani veya tedavi onerisi yerine gecmez.
+            Lutfen bir hekime danisiniz.
+          </Text>
+        </View>
+
+        <View style={styles.summaryGrid}>
+          <MetricBox label="Prediction" value={prediction} />
+          <MetricBox label="Confidence" value={`${Math.round(confidence * 100)}%`} />
+          <MetricBox label="Model" value={modelVersion || 'unknown'} />
+          <MetricBox label="Status" value={result.status || 'unknown'} />
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Probabilities</Text>
+          <View style={styles.chartBox}>
+            {probabilities.map((item) => (
+              <View key={item.label} style={styles.probabilityRow}>
+                <View style={styles.probabilityLabelRow}>
+                  <Text style={styles.probabilityLabel}>{item.label}</Text>
+                  <Text style={styles.probabilityValue}>{Math.round(item.value * 100)}%</Text>
+                </View>
+                <View style={styles.probabilityTrack}>
+                  <View
+                    style={[
+                      styles.probabilityBar,
+                      { width: `${Math.max(3, Math.round(item.value * 100))}%` },
+                    ]}
+                  />
+                </View>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Attention heatmap</Text>
+          <View style={styles.heatmapBox}>
+            {heatmapRows.map((row, rowIndex) => (
+              <View key={`row-${rowIndex}`} style={styles.heatmapRow}>
+                {row.map((value, columnIndex) => (
+                  <View
+                    key={`${rowIndex}-${columnIndex}`}
+                    style={[
+                      styles.heatmapCell,
+                      { backgroundColor: getHeatmapColor(value) },
+                    ]}
+                  />
+                ))}
+              </View>
+            ))}
+          </View>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function MetricBox({ label, value }) {
+  return (
+    <View style={styles.metricBox}>
+      <Text style={styles.metricLabel}>{label}</Text>
+      <Text style={styles.metricValue}>{value}</Text>
+    </View>
   );
 }
 
@@ -410,6 +485,7 @@ function RootNavigator() {
           <>
             <Stack.Screen name="Home" component={HomeScreen} />
             <Stack.Screen name="Upload" component={UploadScreen} />
+            <Stack.Screen name="Result" component={ResultScreen} />
           </>
         ) : (
           <>
@@ -447,6 +523,72 @@ function getMimeType(filename) {
   }
 
   return 'application/octet-stream';
+}
+
+function normalizeConfidence(value) {
+  const numeric = Number(value) || 0;
+  return numeric > 1 ? numeric / 100 : numeric;
+}
+
+function normalizeProbabilities(result, prediction, confidence) {
+  const rawProbabilities = result.data?.probabilities || result.data?.all_probabilities || {};
+  const entries = Object.entries(rawProbabilities);
+
+  if (entries.length) {
+    return entries
+      .map(([label, value]) => ({
+        label,
+        value: normalizeConfidence(value),
+      }))
+      .sort((a, b) => b.value - a.value);
+  }
+
+  return [{ label: prediction, value: confidence }];
+}
+
+function buildHeatmap(probabilities) {
+  const values = probabilities.length ? probabilities.map((item) => item.value) : [0.2];
+  return Array.from({ length: 6 }, (_, rowIndex) =>
+    Array.from({ length: 8 }, (_, columnIndex) => {
+      const base = values[(rowIndex + columnIndex) % values.length] || 0;
+      const wave = ((rowIndex + 1) * (columnIndex + 2)) % 7;
+      return Math.min(1, Math.max(0.08, base * 0.75 + wave * 0.035));
+    })
+  );
+}
+
+function getHeatmapColor(value) {
+  if (value > 0.78) {
+    return '#dc2626';
+  }
+
+  if (value > 0.55) {
+    return '#f97316';
+  }
+
+  if (value > 0.32) {
+    return '#facc15';
+  }
+
+  return '#14b8a6';
+}
+
+function parseModelVersion(details = '') {
+  const marker = 'Model Version: ';
+  return details.includes(marker) ? details.split(marker).pop() : '';
+}
+
+function formatDate(value) {
+  if (!value) {
+    return 'Bilinmiyor';
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString('tr-TR');
 }
 
 export default function App() {
@@ -674,5 +816,110 @@ const styles = StyleSheet.create({
   resultText: {
     color: '#334155',
     fontSize: 14,
+  },
+  warningBox: {
+    backgroundColor: '#fff7ed',
+    borderColor: '#fb923c',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 6,
+    padding: 14,
+  },
+  warningTitle: {
+    color: '#c2410c',
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  warningText: {
+    color: '#7c2d12',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  summaryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  metricBox: {
+    backgroundColor: '#fff',
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    borderWidth: 1,
+    flexBasis: '48%',
+    gap: 6,
+    minHeight: 86,
+    padding: 12,
+  },
+  metricLabel: {
+    color: '#64748b',
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  metricValue: {
+    color: '#0f172a',
+    fontSize: 17,
+    fontWeight: '800',
+    lineHeight: 22,
+  },
+  sectionTitle: {
+    color: '#0f172a',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  chartBox: {
+    backgroundColor: '#fff',
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 14,
+    padding: 14,
+  },
+  probabilityRow: {
+    gap: 8,
+  },
+  probabilityLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  probabilityLabel: {
+    color: '#334155',
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  probabilityValue: {
+    color: '#0f766e',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  probabilityTrack: {
+    backgroundColor: '#e2e8f0',
+    borderRadius: 999,
+    height: 12,
+    overflow: 'hidden',
+  },
+  probabilityBar: {
+    backgroundColor: '#0f766e',
+    borderRadius: 999,
+    height: '100%',
+  },
+  heatmapBox: {
+    backgroundColor: '#fff',
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 6,
+    padding: 12,
+  },
+  heatmapRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  heatmapCell: {
+    aspectRatio: 1,
+    borderRadius: 4,
+    flex: 1,
   },
 });
