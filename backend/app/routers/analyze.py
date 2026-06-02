@@ -20,7 +20,7 @@ router = APIRouter(prefix="/analyze", tags=["analyze"])
 
 MAX_UPLOAD_SIZE_BYTES = int(os.environ.get("MAX_UPLOAD_SIZE_MB", "10")) * 1024 * 1024
 ALLOWED_EXTENSIONS = {
-    "ecg": {".dat", ".csv"},
+    "ecg": {".dat", ".csv", ".txt"},
     "eeg": {".edf"},
 }
 
