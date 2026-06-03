@@ -59,15 +59,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    gap: 18,
+    gap: 15,
     padding: spacing.page,
-    paddingTop: 34,
+    paddingTop: 26,
   },
   list: {
-    gap: 12,
+    gap: 10,
   },
   card: {
-    gap: 12,
+    gap: 10,
   },
   top: {
     alignItems: 'center',
@@ -82,12 +82,12 @@ const styles = StyleSheet.create({
   },
   prediction: {
     color: colors.text,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '900',
-    lineHeight: 23,
+    lineHeight: 21,
   },
   meta: {
     color: colors.muted,
-    fontSize: 14,
+    fontSize: 13,
   },
 });

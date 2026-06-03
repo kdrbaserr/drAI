@@ -75,9 +75,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    gap: 18,
+    gap: 15,
     padding: spacing.page,
-    paddingTop: 34,
+    paddingTop: 26,
   },
   warning: {
     backgroundColor: colors.warningBg,
@@ -86,13 +86,13 @@ const styles = StyleSheet.create({
   },
   warningTitle: {
     color: '#ffd5c6',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '900',
   },
   warningText: {
     color: '#ffd5c6',
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 19,
   },
   metrics: {
     flexDirection: 'row',
@@ -100,7 +100,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   card: {
-    gap: 16,
+    gap: 13,
   },
   sectionTop: {
     alignItems: 'center',
@@ -110,11 +110,11 @@ const styles = StyleSheet.create({
   sectionTitle: {
     color: colors.text,
     flexShrink: 1,
-    fontSize: 19,
+    fontSize: 17,
     fontWeight: '900',
   },
   bars: {
-    gap: 14,
+    gap: 12,
   },
   barRow: {
     gap: 8,
@@ -128,12 +128,12 @@ const styles = StyleSheet.create({
   barLabel: {
     color: colors.text,
     flex: 1,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '800',
   },
   barValue: {
     color: colors.green,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '900',
   },
   track: {
@@ -149,8 +149,8 @@ const styles = StyleSheet.create({
   },
   copy: {
     color: colors.muted,
-    fontSize: 14,
-    lineHeight: 21,
+    fontSize: 13,
+    lineHeight: 19,
   },
   severityTrack: {
     backgroundColor: 'rgba(255,255,255,0.08)',

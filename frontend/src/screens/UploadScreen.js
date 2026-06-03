@@ -158,9 +158,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    gap: 18,
+    gap: 15,
     padding: spacing.page,
-    paddingTop: 34,
+    paddingTop: 26,
   },
   card: {
     gap: 12,
@@ -182,8 +182,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flex: 1,
     gap: 6,
-    minHeight: 88,
-    padding: 12,
+    minHeight: 72,
+    padding: 10,
   },
   segmentActive: {
     borderColor: colors.borderStrong,
@@ -191,7 +191,7 @@ const styles = StyleSheet.create({
   },
   segmentTitle: {
     color: colors.text,
-    fontSize: 21,
+    fontSize: 17,
     fontWeight: '900',
   },
   segmentTitleActive: {
@@ -206,17 +206,17 @@ const styles = StyleSheet.create({
     borderColor: colors.borderStrong,
     borderStyle: 'dashed',
     gap: 12,
-    minHeight: 150,
+    minHeight: 116,
     justifyContent: 'center',
   },
   dropTitle: {
     color: colors.text,
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: '900',
   },
   dropMeta: {
     color: colors.muted,
-    fontSize: 14,
+    fontSize: 13,
   },
   loader: {
     alignItems: 'center',
