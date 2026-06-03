@@ -73,16 +73,21 @@ export function AuthProvider({ children }) {
     setUser(null);
   }, []);
 
+  const startDemoSession = React.useCallback(async () => {
+    await saveSession('demo-token', 'demo-user');
+  }, [saveSession]);
+
   const value = React.useMemo(
     () => ({
       login,
       logout,
       register,
       restoring,
+      startDemoSession,
       token,
       user,
     }),
-    [login, logout, register, restoring, token, user]
+    [login, logout, register, restoring, startDemoSession, token, user]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
