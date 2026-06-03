@@ -137,7 +137,7 @@ const SIGNAL_TYPES = [
 ];
 
 const ALLOWED_UPLOAD_EXTENSIONS = {
-  ecg: ['csv', 'txt'],
+  ecg: ['dat', 'csv', 'txt'],
   eeg: ['edf'],
 };
 
@@ -166,6 +166,7 @@ function HomeScreen({ navigation }) {
 function HistoryScreen({ navigation }) {
   const [analyses, setAnalyses] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
+  const [loadingDetailId, setLoadingDetailId] = React.useState(null);
   const [error, setError] = React.useState('');
 
   const loadHistory = React.useCallback(async () => {
@@ -186,6 +187,19 @@ function HistoryScreen({ navigation }) {
     const unsubscribe = navigation.addListener('focus', loadHistory);
     return unsubscribe;
   }, [loadHistory, navigation]);
+
+  const openAnalysisDetail = async (analysis) => {
+    setError('');
+    setLoadingDetailId(analysis.id);
+    try {
+      const response = await api.get(`/results/${analysis.id}`);
+      navigation.navigate('Result', { result: response.data });
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Analiz detayi acilamadi.'));
+    } finally {
+      setLoadingDetailId(null);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.screenContainer}>
@@ -221,7 +235,12 @@ function HistoryScreen({ navigation }) {
 
         <View style={styles.historyList}>
           {analyses.map((analysis) => (
-            <HistoryCard key={analysis.id} analysis={analysis} />
+            <HistoryCard
+              key={analysis.id}
+              analysis={analysis}
+              loading={loadingDetailId === analysis.id}
+              onPress={() => openAnalysisDetail(analysis)}
+            />
           ))}
         </View>
       </ScrollView>
@@ -229,14 +248,22 @@ function HistoryScreen({ navigation }) {
   );
 }
 
-function HistoryCard({ analysis }) {
+function HistoryCard({ analysis, loading, onPress }) {
   const diagnosis = analysis.diagnosis || {};
   const prediction = diagnosis.result || analysis.data?.prediction || 'Bilinmiyor';
   const confidence = normalizeConfidence(diagnosis.confidence ?? analysis.data?.confidence ?? 0);
   const modelVersion = analysis.data?.model_version || parseModelVersion(diagnosis.details) || 'unknown';
 
   return (
-    <View style={styles.historyCard}>
+    <Pressable
+      style={({ pressed }) => [
+        styles.historyCard,
+        pressed && !loading && styles.pressedCard,
+        loading && styles.disabledButton,
+      ]}
+      onPress={onPress}
+      disabled={loading}
+    >
       <View style={styles.historyCardHeader}>
         <Text style={styles.historySignal}>{analysis.analysis_type?.toUpperCase() || 'ANALIZ'}</Text>
         <Text style={styles.historyDate}>{formatDate(analysis.created_at)}</Text>
@@ -246,7 +273,8 @@ function HistoryCard({ analysis }) {
         <Text style={styles.historyMeta}>Confidence: {Math.round(confidence * 100)}%</Text>
         <Text style={styles.historyMeta}>Model: {modelVersion}</Text>
       </View>
-    </View>
+      {loading ? <ActivityIndicator color="#0f766e" /> : null}
+    </Pressable>
   );
 }
 
@@ -370,8 +398,8 @@ function UploadScreen({ navigation }) {
       }
 
       const extension = getFileExtension(selectedFile.name);
-      if (!['csv', 'txt', 'edf'].includes(extension)) {
-        setError('Sadece .csv, .txt veya .edf dosyasi secebilirsin.');
+      if (!['dat', 'csv', 'txt', 'edf'].includes(extension)) {
+        setError('Sadece .dat, .csv, .txt veya .edf dosyasi secebilirsin.');
         return;
       }
 
@@ -433,7 +461,7 @@ function UploadScreen({ navigation }) {
           <Text style={styles.homeEyebrow}>Analiz</Text>
           <Text style={styles.homeTitle}>Sinyal yukle</Text>
           <Text style={styles.homeSubtitle}>
-            EKG icin CSV veya TXT, EEG icin EDF dosyasi secip analiz endpointine gonder.
+            EKG icin DAT, CSV veya TXT; EEG icin EDF dosyasi secip analiz endpointine gonder.
           </Text>
         </View>
 
@@ -477,7 +505,7 @@ function UploadScreen({ navigation }) {
           <Text style={styles.label}>Dosya</Text>
           <Pressable style={styles.filePicker} onPress={pickFile}>
             <Text style={styles.filePickerTitle}>{file ? file.name : 'Dosya sec'}</Text>
-            <Text style={styles.filePickerMeta}>.csv, .txt, .edf</Text>
+            <Text style={styles.filePickerMeta}>.dat, .csv, .txt, .edf</Text>
           </Pressable>
         </View>
 
@@ -836,6 +864,9 @@ const styles = StyleSheet.create({
   },
   pressedButton: {
     opacity: 0.85,
+  },
+  pressedCard: {
+    opacity: 0.88,
   },
   buttonText: {
     color: '#fff',
