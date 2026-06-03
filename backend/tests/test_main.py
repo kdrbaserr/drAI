@@ -4,7 +4,7 @@ from datetime import timedelta
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["JWT_SECRET_KEY"] = "test-only-secret-key-with-sufficient-length"
 os.environ["JWT_ACCESS_TOKEN_EXPIRE_MINUTES"] = "30"
-os.environ["CORS_ORIGINS"] = "http://localhost:3000"
+os.environ["CORS_ORIGINS"] = "http://localhost:3000,http://localhost:8081"
 
 import pytest
 from fastapi.testclient import TestClient
@@ -82,6 +82,20 @@ def test_cors_allows_configured_frontend_origin():
     assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
 
 
+def test_cors_allows_expo_web_origin():
+    response = client.options(
+        "/api/v1/analyze/ecg",
+        headers={
+            "Origin": "http://localhost:8081",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "Authorization, Content-Type",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:8081"
+
+
 def test_protected_endpoint_requires_token():
     response = client.get("/api/v1/history")
 
@@ -114,6 +128,54 @@ def test_valid_token_accesses_protected_endpoint(db_session):
     )
 
     assert response.status_code == 200
+
+
+def test_demo_flow_register_login_ecg_history_result_and_logout_guard(db_session):
+    app.dependency_overrides.pop(get_current_user, None)
+
+    register = client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": "demo",
+            "email": "demo@example.com",
+            "password": "StrongPass123",
+        },
+    )
+    assert register.status_code == 200
+
+    login = client.post(
+        "/api/v1/auth/login",
+        data={"username": "demo", "password": "StrongPass123"},
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    assert login.status_code == 200
+    token = login.json()["access_token"]
+    auth_headers = {"Authorization": f"Bearer {token}"}
+
+    upload = client.post(
+        "/api/v1/analyze/ecg",
+        files={"file": ("demo.dat", b"demo-ecg-signal", "application/octet-stream")},
+        headers=auth_headers,
+    )
+    assert upload.status_code == 200
+    uploaded = upload.json()
+    assert uploaded["analysis_type"] == "ecg"
+    assert uploaded["data"]["filename"] == "demo.dat"
+    assert uploaded["data"]["model_version"] == "1.0.0"
+    assert uploaded["diagnosis"]["result"] == "Model unavailable"
+
+    history = client.get("/api/v1/history", headers=auth_headers)
+    assert history.status_code == 200
+    history_items = history.json()
+    assert len(history_items) == 1
+    assert history_items[0]["id"] == uploaded["id"]
+
+    detail = client.get(f"/api/v1/results/{uploaded['id']}", headers=auth_headers)
+    assert detail.status_code == 200
+    assert detail.json()["id"] == uploaded["id"]
+
+    logged_out_history = client.get("/api/v1/history")
+    assert logged_out_history.status_code == 401
 
 
 def test_eeg_error_is_persisted_as_experimental(db_session, monkeypatch):

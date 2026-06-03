@@ -29,6 +29,30 @@ export function getApiErrorMessage(error, fallback = 'Bir hata olustu. Lutfen te
   const detail = error?.response?.data?.detail;
 
   if (typeof detail === 'string') {
+    if (detail.includes('Invalid ECG file extension')) {
+      return 'Gecersiz EKG dosyasi. .dat, .csv veya .txt yuklemelisin.';
+    }
+
+    if (detail.includes('Invalid EEG file extension')) {
+      return 'Gecersiz EEG dosyasi. .edf yuklemelisin.';
+    }
+
+    if (detail.includes('Uploaded file exceeds')) {
+      return 'Dosya boyutu izin verilen limiti asiyor.';
+    }
+
+    if (detail.includes('Incorrect username or password')) {
+      return 'Kullanici adi veya sifre hatali.';
+    }
+
+    if (detail.includes('Username already registered')) {
+      return 'Bu kullanici adi zaten kayitli.';
+    }
+
+    if (detail.includes('Could not validate credentials')) {
+      return 'Oturum dogrulanamadi. Lutfen tekrar giris yap.';
+    }
+
     return detail;
   }
 
