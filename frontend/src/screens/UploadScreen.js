@@ -1,6 +1,6 @@
 import React from 'react';
 import * as DocumentPicker from 'expo-document-picker';
-import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { HeartbeatBackground } from '../components/HeartbeatBackground';
 import { BackButton, Button, Card, Pill, ScreenTitle } from '../components/ui';
 import { mockResult } from '../data/mockData';
@@ -58,16 +58,10 @@ export function UploadScreen({ navigation }) {
     setError('');
     setLoading(true);
     const formData = new FormData();
-    formData.append('file', {
-      uri: file.uri,
-      name: file.name,
-      type: file.mimeType || getMimeType(file.name),
-    });
+    await appendUploadFile(formData, file);
 
     try {
-      const response = await api.post(`/analyze/${signalType}`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      const response = await api.post(`/analyze/${signalType}`, formData);
       navigation.navigate('Result', { result: response.data });
     } catch (err) {
       setError(getApiErrorMessage(err, 'Backend yanıt vermedi. Demo sonucunu görüntüleyebilirsin.'));
@@ -136,6 +130,26 @@ function getMimeType(filename) {
   if (extension === 'csv') return 'text/csv';
   if (extension === 'txt') return 'text/plain';
   return 'application/octet-stream';
+}
+
+async function appendUploadFile(formData, selectedFile) {
+  if (Platform.OS === 'web') {
+    if (selectedFile.file instanceof Blob) {
+      formData.append('file', selectedFile.file, selectedFile.name);
+      return;
+    }
+
+    const response = await fetch(selectedFile.uri);
+    const blob = await response.blob();
+    formData.append('file', blob, selectedFile.name);
+    return;
+  }
+
+  formData.append('file', {
+    uri: selectedFile.uri,
+    name: selectedFile.name,
+    type: selectedFile.mimeType || getMimeType(selectedFile.name),
+  });
 }
 
 const styles = StyleSheet.create({
