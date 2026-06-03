@@ -92,19 +92,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    gap: 22,
+    gap: 16,
     minHeight: '100%',
     padding: spacing.page,
-    paddingTop: 34,
+    paddingTop: 26,
   },
   logoRow: {
     paddingTop: 12,
   },
   card: {
-    gap: 22,
+    gap: 16,
   },
   form: {
-    gap: 14,
+    gap: 12,
   },
   error: {
     color: colors.red,

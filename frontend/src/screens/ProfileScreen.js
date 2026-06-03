@@ -84,16 +84,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    gap: 18,
+    gap: 15,
     padding: spacing.page,
-    paddingTop: 34,
+    paddingTop: 26,
   },
   card: {
-    gap: 12,
+    gap: 10,
   },
   sectionTitle: {
     color: colors.text,
-    fontSize: 19,
+    fontSize: 17,
     fontWeight: '900',
   },
   info: {
@@ -104,13 +104,13 @@ const styles = StyleSheet.create({
   infoLabel: {
     color: colors.muted,
     flex: 1,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '800',
   },
   infoValue: {
     color: colors.text,
     flex: 1,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '900',
     textAlign: 'right',
   },
@@ -129,13 +129,13 @@ const styles = StyleSheet.create({
   modelName: {
     color: colors.text,
     flex: 1,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '900',
   },
   copy: {
     color: colors.muted,
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 19,
   },
   warning: {
     backgroundColor: colors.warningBg,
@@ -144,12 +144,12 @@ const styles = StyleSheet.create({
   },
   warningTitle: {
     color: '#ffd5c6',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '900',
   },
   warningText: {
     color: '#ffd5c6',
-    fontSize: 14,
-    lineHeight: 21,
+    fontSize: 13,
+    lineHeight: 19,
   },
 });

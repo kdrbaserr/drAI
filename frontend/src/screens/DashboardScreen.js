@@ -101,9 +101,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    gap: 20,
+    gap: 16,
     padding: spacing.page,
-    paddingTop: 34,
+    paddingTop: 26,
   },
   nav: {
     alignItems: 'center',
@@ -111,7 +111,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   cta: {
-    gap: 12,
+    gap: 10,
   },
   metrics: {
     flexDirection: 'row',
@@ -125,13 +125,13 @@ const styles = StyleSheet.create({
   },
   disclaimerTitle: {
     color: '#ffd5c6',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '900',
   },
   disclaimerText: {
     color: '#ffd5c6',
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 19,
   },
   sectionHead: {
     alignItems: 'center',
@@ -140,7 +140,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     color: colors.text,
-    fontSize: 21,
+    fontSize: 18,
     fontWeight: '900',
   },
   list: {
@@ -162,12 +162,12 @@ const styles = StyleSheet.create({
   },
   prediction: {
     color: colors.text,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '900',
-    lineHeight: 23,
+    lineHeight: 21,
   },
   meta: {
     color: colors.muted,
-    fontSize: 14,
+    fontSize: 13,
   },
 });

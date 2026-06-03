@@ -56,10 +56,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    gap: 22,
+    gap: 18,
     minHeight: '100%',
     padding: spacing.page,
-    paddingTop: 46,
+    paddingTop: 34,
   },
   header: {
     alignItems: 'center',
@@ -67,19 +67,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   hero: {
-    gap: 14,
-    paddingTop: 26,
+    gap: 12,
+    paddingTop: 18,
   },
   title: {
     color: colors.text,
-    fontSize: 42,
+    fontSize: 32,
     fontWeight: '900',
-    lineHeight: 48,
+    lineHeight: 38,
   },
   copy: {
     color: colors.muted,
-    fontSize: 16,
-    lineHeight: 24,
+    fontSize: 14,
+    lineHeight: 21,
   },
   actions: {
     gap: 12,
@@ -100,12 +100,12 @@ const styles = StyleSheet.create({
   },
   monitorValue: {
     color: colors.green,
-    fontSize: 54,
+    fontSize: 38,
     fontWeight: '900',
   },
   monitorCopy: {
     color: colors.muted,
-    fontSize: 14,
+    fontSize: 13,
   },
   disclaimer: {
     backgroundColor: colors.warningBg,
@@ -113,7 +113,7 @@ const styles = StyleSheet.create({
   },
   disclaimerText: {
     color: '#ffd5c6',
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 19,
   },
 });

@@ -17,7 +17,7 @@ export const colors = {
 };
 
 export const spacing = {
-  page: 20,
+  page: 16,
   radius: 8,
 };
 
