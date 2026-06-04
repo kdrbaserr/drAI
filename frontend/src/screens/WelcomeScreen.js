@@ -22,7 +22,7 @@ export function WelcomeScreen({ navigation }) {
         <View style={styles.hero}>
           <Text style={styles.title}>AI destekli EKG/EEG sinyal analiz platformu</Text>
           <Text style={styles.copy}>
-            drAI, EKG öncelikli demo akışında sinyal dosyasını alır, model sonucunu güven
+            signAI, EKG öncelikli demo akışında sinyal dosyasını alır, model sonucunu güven
             skoru ve olasılık dağılımıyla profesyonel bir dashboard üzerinde gösterir.
           </Text>
         </View>

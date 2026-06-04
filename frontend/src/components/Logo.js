@@ -28,7 +28,7 @@ export function Logo({ compact = false }) {
         </Svg>
       </View>
       <Text style={[styles.text, compact && styles.textSmall]}>
-        dr<Text style={styles.ai}>AI</Text>
+        sign<Text style={styles.ai}>AI</Text>
       </Text>
     </View>
   );

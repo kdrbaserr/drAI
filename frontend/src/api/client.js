@@ -2,8 +2,8 @@ import { Platform } from 'react-native';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export const AUTH_TOKEN_KEY = 'drai.authToken';
-export const AUTH_USER_KEY = 'drai.authUser';
+export const AUTH_TOKEN_KEY = 'signai.authToken';
+export const AUTH_USER_KEY = 'signai.authUser';
 
 const defaultBaseURL = Platform.select({
   android: 'http://10.0.2.2:8000',

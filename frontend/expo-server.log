@@ -1,0 +1,23 @@
+Starting project at C:\Users\kadir\.gemini\antigravity\scratch\DrAI\frontend
+Starting Metro Bundler
+
+Waiting on http://localhost:8081
+Logs for your project will appear below.
+Web .\index.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Web Bundled 1372ms index.js (538 modules)
+ LOG  [web] Logs will appear in the browser console
+Web .\index.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Web Bundled 28ms index.js (1 module)
+ LOG  [web] Logs will appear in the browser console
+ ERROR  Project is incompatible with this version of Expo Go
+
+This project requires a newer version of Expo Go.
+
+How to fix this error:
+Download the latest version of Expo Go from the Play Store.
+ ERROR  Project is incompatible with this version of Expo Go
+
+This project requires a newer version of Expo Go.
+
+How to fix this error:
+Download the latest version of Expo Go from the Play Store.
