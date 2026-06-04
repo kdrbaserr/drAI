@@ -57,7 +57,7 @@ export function RegisterScreen({ navigation }) {
   };
 
   return (
-    <AuthShell navigation={navigation} title="drAI hesabı" subtitle="Analiz geçmişi ve sonuç detayları için hesap oluştur.">
+    <AuthShell navigation={navigation} title="signAI hesabı" subtitle="Analiz geçmişi ve sonuç detayları için hesap oluştur.">
       <TextField label="Kullanıcı adı" value={username} onChangeText={setUsername} autoCapitalize="none" />
       <TextField label="E-posta" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
       <TextField label="Şifre" value={password} onChangeText={setPassword} secureTextEntry />
