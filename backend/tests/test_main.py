@@ -20,6 +20,7 @@ from app.models.analysis import Analysis
 from app.models.audit_log import AuditLog
 from app.models.user import User
 from app.routers.auth import get_current_user
+from app.schemas.signal import SourceFormat, StandardSignalMetadata, infer_source_format
 from app.utils.security import create_access_token
 
 client = TestClient(app)
@@ -96,6 +97,26 @@ def test_cors_allows_expo_web_origin():
     assert response.headers["access-control-allow-origin"] == "http://localhost:8081"
 
 
+def test_standard_signal_metadata_contract_shape():
+    metadata = StandardSignalMetadata(
+        signal_type="ecg",
+        source_format="wfdb",
+        sample_rate_hz=500,
+        channels=["I", "II"],
+        duration_sec=10,
+        matrix_shape=[2, 5000],
+        signal_preview=[{"time": 0, "value": 0.12, "channel": "II"}],
+        converter_warnings=[],
+    )
+
+    payload = metadata.model_dump(mode="json")
+    assert payload["signal_type"] == "ecg"
+    assert payload["source_format"] == "wfdb"
+    assert payload["matrix_shape"] == [2, 5000]
+    assert payload["signal_preview"][0]["channel"] == "II"
+    assert infer_source_format("record.edf") == SourceFormat.EDF
+
+
 def test_protected_endpoint_requires_token():
     response = client.get("/api/v1/history")
 
@@ -161,6 +182,8 @@ def test_demo_flow_register_login_ecg_history_result_and_logout_guard(db_session
     uploaded = upload.json()
     assert uploaded["analysis_type"] == "ecg"
     assert uploaded["data"]["filename"] == "demo.dat"
+    assert uploaded["data"]["standard_signal"]["signal_type"] == "ecg"
+    assert uploaded["data"]["standard_signal"]["source_format"] == "wfdb"
     assert uploaded["data"]["model_version"] == "1.0.0"
     assert uploaded["diagnosis"]["result"] == "Model unavailable"
 
@@ -187,7 +210,7 @@ def test_eeg_error_is_persisted_as_experimental(db_session, monkeypatch):
             "prediction": "unknown",
             "confidence": 0.0,
             "model_version": "1.0.0-lora-merged-runtime",
-            "preprocessing_info": {"n_channels": 68},
+            "preprocessing_info": {"n_channels": 68, "seq_len": 512},
         },
     )
 
@@ -200,6 +223,8 @@ def test_eeg_error_is_persisted_as_experimental(db_session, monkeypatch):
     payload = response.json()
     assert payload["status"] == "experimental"
     assert payload["data"]["model_version"] == "1.0.0-lora-merged-runtime"
+    assert payload["data"]["standard_signal"]["signal_type"] == "eeg"
+    assert payload["data"]["standard_signal"]["matrix_shape"] == [68, 512]
     assert payload["patient_data_warning"]
     assert payload["clinical_decision_support_warning"]
     persisted = db_session.query(Analysis).filter(Analysis.id == payload["id"]).one()

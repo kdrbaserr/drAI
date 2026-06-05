@@ -15,6 +15,7 @@ from app.models.diagnosis import Diagnosis
 from app.models.user import User
 from app.routers.auth import get_current_user
 from app.schemas.analysis import AnalysisResponse, MEDICAL_DISCLAIMER
+from app.schemas.signal import build_standard_signal_metadata
 
 router = APIRouter(prefix="/analyze", tags=["analyze"])
 
@@ -115,6 +116,13 @@ def _persist_analysis(
         "content_type": file.content_type,
         "inference_status": inference_result.get("status"),
         "preprocessing": inference_result.get("preprocessing_info", {}),
+        "standard_signal": build_standard_signal_metadata(
+            signal_type=analysis_type,
+            filename=file.filename,
+            content_type=file.content_type,
+            preprocessing_info=inference_result.get("preprocessing_info", {}),
+            converter_warnings=inference_result.get("converter_warnings", []),
+        ).model_dump(mode="json"),
         "model_version": model_version,
         "prediction": inference_result.get("prediction", "Unknown"),
         "confidence": inference_result.get("confidence", 0.0),
