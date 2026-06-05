@@ -17,6 +17,27 @@ const allowed = {
   eeg: ['edf'],
 };
 
+const formatGuide = {
+  ecg: {
+    supported: '.csv, .txt, .dat',
+    planned: '.hea, .dcm, .xml',
+    note: 'WFDB kayıtlarında .dat dosyası çoğu zaman aynı isimli .hea başlığıyla gelir; .hea desteği sonraki backend adımında eklenecek.',
+  },
+  eeg: {
+    supported: '.edf',
+    planned: '.bdf, .vhdr/.vmrk/.eeg',
+    note: 'BrainVision kayıtları üçlü dosya grubudur; .vhdr, .vmrk ve .eeg aynı kayıt seti olarak tutulmalıdır.',
+  },
+};
+
+const multiFileWarnings = {
+  dat: 'WFDB formatı genelde .dat + .hea çifti ister; .hea desteği sonraki backend adımında gelecek.',
+  hea: 'WFDB için .dat dosyası da gerekir; şu an backend .hea upload kabul etmiyor.',
+  vhdr: 'BrainVision için .vhdr + .vmrk + .eeg dosyaları birlikte gerekir.',
+  vmrk: 'BrainVision için .vhdr + .vmrk + .eeg dosyaları birlikte gerekir.',
+  eeg: 'BrainVision için .vhdr + .vmrk + .eeg dosyaları birlikte gerekir.',
+};
+
 export function UploadScreen({ navigation }) {
   const [signalType, setSignalType] = React.useState('ecg');
   const [file, setFile] = React.useState(null);
@@ -29,7 +50,15 @@ export function UploadScreen({ navigation }) {
       const response = await DocumentPicker.getDocumentAsync({
         copyToCacheDirectory: true,
         multiple: false,
-        type: ['text/csv', 'text/plain', 'application/octet-stream', 'application/x-edf', 'application/edf'],
+        type: [
+          'text/csv',
+          'text/plain',
+          'application/octet-stream',
+          'application/x-edf',
+          'application/edf',
+          'application/xml',
+          'text/xml',
+        ],
       });
       if (response.canceled) return;
       const selected = response.assets?.[0];
@@ -70,6 +99,10 @@ export function UploadScreen({ navigation }) {
     }
   };
 
+  const selectedExtension = getFileExtension(file?.name);
+  const selectedGuide = formatGuide[signalType];
+  const multiFileWarning = multiFileWarnings[selectedExtension];
+
   return (
     <SafeAreaView style={styles.safe}>
       <HeartbeatBackground intensity="hero" />
@@ -78,7 +111,7 @@ export function UploadScreen({ navigation }) {
         <ScreenTitle
           eyebrow="Analyze"
           title="Sinyal dosyasını yükle"
-          subtitle="Multipart/form-data ile /analyze/ecg veya /analyze/eeg endpointine hazır akış."
+          subtitle="ECG ve EEG dosyaları backend converter katmanında standart sinyal formatına hazırlanır."
         />
 
         <Card style={styles.card}>
@@ -97,13 +130,33 @@ export function UploadScreen({ navigation }) {
           </View>
         </Card>
 
+        <Card style={styles.card}>
+          <Text style={styles.label}>Format rehberi</Text>
+          <View style={styles.guideRow}>
+            <Text style={styles.guideKey}>Şu an</Text>
+            <Text style={styles.guideValue}>{selectedGuide.supported}</Text>
+          </View>
+          <View style={styles.guideRow}>
+            <Text style={styles.guideKey}>Sıradaki</Text>
+            <Text style={styles.guideValue}>{selectedGuide.planned}</Text>
+          </View>
+          <Text style={styles.guideNote}>{selectedGuide.note}</Text>
+        </Card>
+
         <Pressable onPress={pickFile}>
           <Card style={styles.dropzone}>
             <Pill label="drag & drop ready" tone="amber" />
             <Text style={styles.dropTitle}>{file ? file.name : 'Dosya seç'}</Text>
-            <Text style={styles.dropMeta}>Desteklenen formatlar: .csv, .txt, .dat, .edf</Text>
+            <Text style={styles.dropMeta}>Desteklenen formatlar: {selectedGuide.supported}</Text>
+            {file ? <Text style={styles.dropMeta}>Seçilen dosya türü: .{selectedExtension || 'bilinmiyor'}</Text> : null}
           </Card>
         </Pressable>
+
+        {multiFileWarning ? (
+          <View style={styles.warningBox}>
+            <Text style={styles.warningText}>{multiFileWarning}</Text>
+          </View>
+        ) : null}
 
         {loading ? (
           <Card style={styles.loader}>
@@ -129,6 +182,7 @@ function getMimeType(filename) {
   const extension = getFileExtension(filename);
   if (extension === 'csv') return 'text/csv';
   if (extension === 'txt') return 'text/plain';
+  if (extension === 'xml') return 'application/xml';
   return 'application/octet-stream';
 }
 
@@ -202,6 +256,29 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
   },
+  guideRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  guideKey: {
+    color: colors.green,
+    fontSize: 12,
+    fontWeight: '900',
+    minWidth: 72,
+    textTransform: 'uppercase',
+  },
+  guideValue: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  guideNote: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 19,
+  },
   dropzone: {
     borderColor: colors.borderStrong,
     borderStyle: 'dashed',
@@ -217,6 +294,20 @@ const styles = StyleSheet.create({
   dropMeta: {
     color: colors.muted,
     fontSize: 13,
+    lineHeight: 18,
+  },
+  warningBox: {
+    backgroundColor: colors.warningBg,
+    borderColor: colors.warningBorder,
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 12,
+  },
+  warningText: {
+    color: colors.amber,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 19,
   },
   loader: {
     alignItems: 'center',
