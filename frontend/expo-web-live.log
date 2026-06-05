@@ -1,8 +1,11 @@
 Starting project at C:\Users\kadir\.gemini\antigravity\scratch\DrAI\frontend
 Starting Metro Bundler
-
 Waiting on http://localhost:8082
 Logs for your project will appear below.
+Web .\index.js ▓▓▓▓▓▓▓▓▓▓░░░░░░ 64.8% ( 48/117)
+Web Bundled 5989ms index.js (585 modules)
+Web .\index.js ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░ 99.9% (585/585)
+ LOG  [web] Logs will appear in the browser console
 Web .\index.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
-Web Bundled 1585ms index.js (591 modules)
+Web Bundled 31ms index.js (1 module)
  LOG  [web] Logs will appear in the browser console
