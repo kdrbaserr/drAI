@@ -47,6 +47,18 @@ class StandardSignalMetadata(BaseModel):
     model_config = ConfigDict(extra="forbid", use_enum_values=True)
 
 
+class ConvertPreviewResponse(BaseModel):
+    signal_type: SignalType
+    readable: bool
+    filenames: list[str]
+    standard_signal: StandardSignalMetadata
+    preprocessing: dict[str, Any] = Field(default_factory=dict)
+    converter_warnings: list[str] = Field(default_factory=list)
+    error: str | None = None
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
 _EXTENSION_FORMATS = {
     ".csv": SourceFormat.CSV,
     ".txt": SourceFormat.TXT,

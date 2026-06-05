@@ -60,6 +60,22 @@ def predict_ecg(file_path: str):
     }
 
 
+def preview_ecg(file_path: str) -> dict:
+    metadata = _load_json(METADATA_PATH)
+    preprocessing_info = _build_preprocessing_info(file_path, metadata)
+    mode = preprocessing_info.get("mode", "")
+    warnings = preprocessing_info.get("converter_warnings", [])
+    readable = not mode.endswith("parse_failed") and mode != "demo_fallback"
+    return {
+        "status": "success" if readable else "error",
+        "readable": readable,
+        "model_version": metadata.get("version", "unknown"),
+        "preprocessing_info": preprocessing_info,
+        "converter_warnings": warnings,
+        "error": preprocessing_info.get("reason") if not readable else None,
+    }
+
+
 def _build_preprocessing_info(file_path: str, metadata: dict) -> dict:
     extension = Path(file_path).suffix.lower()
     if extension in {".dat", ".hea"}:
