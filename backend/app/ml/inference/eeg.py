@@ -119,6 +119,65 @@ def _preprocess_edf(file_path: str) -> np.ndarray:
         return np.zeros((1, N_CHANNELS, SEQ_LEN), dtype=np.float32)
 
 
+def _read_edf_metadata(file_path: str) -> dict:
+    try:
+        import mne
+
+        mne.set_log_level("WARNING")
+        raw = mne.io.read_raw_edf(file_path, preload=False, verbose=False)
+        sample_rate = float(raw.info["sfreq"]) if raw.info.get("sfreq") else None
+        return {
+            "sample_rate_hz": sample_rate,
+            "channels": list(raw.ch_names),
+            "duration_sec": round(raw.n_times / sample_rate, 4) if sample_rate else None,
+        }
+    except ImportError:
+        return {"converter_warnings": ["MNE is unavailable; EDF metadata could not be read."]}
+    except Exception as exc:
+        logger.error("EDF metadata extraction failed: %s", exc)
+        return {"converter_warnings": [f"EDF metadata could not be read: {exc}"]}
+
+
+def _build_signal_preview(signal: np.ndarray, sample_rate_hz: float | None) -> list[dict]:
+    signal = np.asarray(signal, dtype=np.float32)
+    matrix = signal[0] if signal.ndim == 3 else signal
+    if matrix.ndim != 2 or matrix.shape[0] == 0 or matrix.shape[1] == 0:
+        return []
+    max_points = 200
+    step = max(1, matrix.shape[1] // max_points)
+    sample_rate = float(sample_rate_hz or 1)
+    preview = []
+    for sample_index in range(0, matrix.shape[1], step):
+        preview.append(
+            {
+                "time": round(sample_index / sample_rate, 4),
+                "value": round(float(matrix[0, sample_index]), 6),
+                "channel": "CH001",
+            }
+        )
+    return preview
+
+
+def _build_preprocessing_info(file_path: str, signal: np.ndarray) -> dict:
+    metadata = _read_edf_metadata(file_path)
+    warnings = metadata.get("converter_warnings", [])
+    channels = metadata.get("channels") or [f"CH{index + 1:03d}" for index in range(N_CHANNELS)]
+    sample_rate = metadata.get("sample_rate_hz")
+
+    return {
+        "mode": "mne_edf_converter",
+        "seq_len": SEQ_LEN,
+        "n_channels": N_CHANNELS,
+        "file": os.path.basename(file_path),
+        "sample_rate_hz": sample_rate,
+        "channels": channels[:N_CHANNELS],
+        "duration_sec": metadata.get("duration_sec"),
+        "matrix_shape": [N_CHANNELS, SEQ_LEN],
+        "signal_preview": _build_signal_preview(signal, sample_rate),
+        "converter_warnings": warnings,
+    }
+
+
 def predict_eeg(file_path: str) -> dict:
     """Run EEG motor-imagery classification on an uploaded EDF file."""
     preprocessing_info = {
@@ -130,6 +189,7 @@ def predict_eeg(file_path: str) -> dict:
         import torch
 
         signal = _preprocess_edf(file_path)
+        preprocessing_info = _build_preprocessing_info(file_path, signal)
         tensor = torch.tensor(signal)
         model = _load_model()
 

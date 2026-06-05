@@ -260,6 +260,28 @@ def test_eeg_preprocessing_runs_before_experimental_model_fallback(monkeypatch):
     assert result["preprocessing_info"]["n_channels"] == 68
 
 
+def test_eeg_edf_metadata_populates_standard_preprocessing_info(monkeypatch):
+    monkeypatch.setattr(
+        eeg_inference,
+        "_read_edf_metadata",
+        lambda _: {
+            "sample_rate_hz": 256.0,
+            "channels": ["Fp1", "Fp2", "C3"],
+            "duration_sec": 2.0,
+        },
+    )
+
+    signal = __import__("numpy").zeros((1, 68, 512), dtype="float32")
+    preprocessing = eeg_inference._build_preprocessing_info("sample.edf", signal)
+
+    assert preprocessing["mode"] == "mne_edf_converter"
+    assert preprocessing["sample_rate_hz"] == 256.0
+    assert preprocessing["channels"] == ["Fp1", "Fp2", "C3"]
+    assert preprocessing["duration_sec"] == 2.0
+    assert preprocessing["matrix_shape"] == [68, 512]
+    assert preprocessing["signal_preview"][0]["channel"] == "CH001"
+
+
 def test_ecg_csv_is_parsed_into_standard_preprocessing_metadata():
     with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False) as sample:
         sample.write("time,lead_i,lead_ii\n")
