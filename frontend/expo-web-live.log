@@ -1,11 +1,13 @@
+
+> signai@1.0.0 web
+> expo start --web --non-interactive
+
 Starting project at C:\Users\kadir\.gemini\antigravity\scratch\DrAI\frontend
 Starting Metro Bundler
-Waiting on http://localhost:8082
+Waiting on http://localhost:8081
 Logs for your project will appear below.
-Web .\index.js ▓▓▓▓▓▓▓▓▓▓░░░░░░ 64.8% ( 48/117)
-Web Bundled 5989ms index.js (585 modules)
-Web .\index.js ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░ 99.9% (585/585)
+Web Bundled 1211ms index.js (559 modules)
  LOG  [web] Logs will appear in the browser console
 Web .\index.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
-Web Bundled 31ms index.js (1 module)
+Web Bundled 57ms index.js (1 module)
  LOG  [web] Logs will appear in the browser console
