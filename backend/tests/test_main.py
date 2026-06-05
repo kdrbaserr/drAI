@@ -1,6 +1,9 @@
 import os
+import sys
 import tempfile
+import types
 from datetime import timedelta
+from pathlib import Path
 
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["JWT_SECRET_KEY"] = "test-only-secret-key-with-sufficient-length"
@@ -301,6 +304,78 @@ def test_ecg_csv_is_parsed_into_standard_preprocessing_metadata():
     assert preprocessing["sample_rate_hz"] == 500.0
     assert preprocessing["matrix_shape"] == [2, 3]
     assert preprocessing["signal_preview"][0]["channel"] == "CH001"
+
+
+def test_ecg_wfdb_parser_reads_record_metadata(monkeypatch, tmp_path):
+    record_base = tmp_path / "record"
+    record_base.with_suffix(".dat").write_bytes(b"wfdb-binary")
+    record_base.with_suffix(".hea").write_text("record 2 500 3\n", encoding="utf-8")
+
+    class FakeRecord:
+        fs = 500
+        sig_name = ["I", "II"]
+        p_signal = [[0.1, 0.2], [0.11, 0.21], [0.12, 0.22]]
+        d_signal = None
+
+    fake_wfdb = types.SimpleNamespace(rdrecord=lambda _: FakeRecord())
+    monkeypatch.setitem(sys.modules, "wfdb", fake_wfdb)
+
+    result = ecg_inference.predict_ecg(str(record_base.with_suffix(".dat")))
+    preprocessing = result["preprocessing_info"]
+
+    assert preprocessing["mode"] == "wfdb_converter"
+    assert preprocessing["sample_rate_hz"] == 500.0
+    assert preprocessing["channels"] == ["I", "II"]
+    assert preprocessing["matrix_shape"] == [2, 3]
+
+
+def test_ecg_multi_file_wfdb_upload_keeps_pair_together(db_session, monkeypatch):
+    def fake_predict(path):
+        dat_path = Path(path)
+        assert dat_path.name == "record.dat"
+        assert dat_path.with_suffix(".hea").exists()
+        return {
+            "status": "success",
+            "prediction": "Normal Sinus Rhythm",
+            "confidence": 0.91,
+            "model_version": "1.0.0",
+            "all_probabilities": {"Normal Sinus Rhythm": 0.91},
+            "preprocessing_info": {
+                "mode": "wfdb_converter",
+                "sample_rate_hz": 500,
+                "channels": ["I"],
+                "duration_sec": 0.004,
+                "matrix_shape": [1, 2],
+            },
+        }
+
+    monkeypatch.setattr(analyze_router, "predict_ecg", fake_predict)
+
+    response = client.post(
+        "/api/v1/analyze/ecg",
+        files=[
+            ("files", ("record.dat", b"wfdb-data", "application/octet-stream")),
+            ("files", ("record.hea", b"record 1 500 2", "text/plain")),
+        ],
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["filenames"] == ["record.dat", "record.hea"]
+    assert payload["data"]["standard_signal"]["source_format"] == "wfdb"
+    assert payload["data"]["standard_signal"]["matrix_shape"] == [1, 2]
+
+
+def test_ecg_hea_without_dat_is_rejected_and_audited(db_session):
+    response = client.post(
+        "/api/v1/analyze/ecg",
+        files=[("files", ("record.hea", b"record 1 500 2", "text/plain"))],
+    )
+
+    assert response.status_code == 400
+    assert "matching .dat" in response.json()["detail"]
+    audit_log = db_session.query(AuditLog).one()
+    assert audit_log.status == "rejected"
 
 
 def test_invalid_file_extension_is_rejected_and_audited(db_session):
