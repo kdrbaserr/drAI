@@ -1,4 +1,5 @@
 import os
+import tempfile
 from datetime import timedelta
 
 os.environ["DATABASE_URL"] = "sqlite://"
@@ -13,6 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import app.routers.analyze as analyze_router
+import app.ml.inference.ecg as ecg_inference
 import app.ml.inference.eeg as eeg_inference
 from app.database import Base, get_db
 from app.main import app
@@ -185,7 +187,7 @@ def test_demo_flow_register_login_ecg_history_result_and_logout_guard(db_session
     assert uploaded["data"]["standard_signal"]["signal_type"] == "ecg"
     assert uploaded["data"]["standard_signal"]["source_format"] == "wfdb"
     assert uploaded["data"]["model_version"] == "1.0.0"
-    assert uploaded["diagnosis"]["result"] == "Model unavailable"
+    assert uploaded["diagnosis"]["result"]
 
     history = client.get("/api/v1/history", headers=auth_headers)
     assert history.status_code == 200
@@ -258,6 +260,27 @@ def test_eeg_preprocessing_runs_before_experimental_model_fallback(monkeypatch):
     assert result["preprocessing_info"]["n_channels"] == 68
 
 
+def test_ecg_csv_is_parsed_into_standard_preprocessing_metadata():
+    with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False) as sample:
+        sample.write("time,lead_i,lead_ii\n")
+        sample.write("0.000,0.10,0.20\n")
+        sample.write("0.002,0.11,0.21\n")
+        sample.write("0.004,0.12,0.22\n")
+        sample_path = sample.name
+
+    try:
+        result = ecg_inference.predict_ecg(sample_path)
+    finally:
+        os.remove(sample_path)
+
+    preprocessing = result["preprocessing_info"]
+    assert result["status"] == "success"
+    assert preprocessing["mode"] == "parsed_numeric_ecg"
+    assert preprocessing["sample_rate_hz"] == 500.0
+    assert preprocessing["matrix_shape"] == [2, 3]
+    assert preprocessing["signal_preview"][0]["channel"] == "CH001"
+
+
 def test_invalid_file_extension_is_rejected_and_audited(db_session):
     response = client.post(
         "/api/v1/analyze/eeg",
@@ -307,10 +330,10 @@ def test_ecg_placeholder_is_persisted_as_experimental(db_session):
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["status"] == "experimental"
-    assert payload["diagnosis"]["result"] == "Model unavailable"
+    assert payload["status"] == "completed"
+    assert payload["diagnosis"]["result"]
     audit_log = db_session.query(AuditLog).one()
-    assert audit_log.status == "experimental"
+    assert audit_log.status == "completed"
     assert audit_log.model_version == "1.0.0"
 
 
