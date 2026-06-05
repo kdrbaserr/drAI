@@ -2,6 +2,7 @@ import os
 import json
 import hashlib
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 import numpy as np
 
@@ -63,6 +64,10 @@ def _build_preprocessing_info(file_path: str, metadata: dict) -> dict:
     extension = Path(file_path).suffix.lower()
     if extension in {".dat", ".hea"}:
         return _build_wfdb_preprocessing_info(file_path, metadata)
+    if extension == ".dcm":
+        return _build_dicom_preprocessing_info(file_path, metadata)
+    if extension == ".xml":
+        return _build_xml_preprocessing_info(file_path, metadata)
 
     if extension not in {".csv", ".txt"}:
         return {
@@ -98,6 +103,190 @@ def _build_preprocessing_info(file_path: str, metadata: dict) -> dict:
     }
 
 
+def _build_dicom_preprocessing_info(file_path: str, metadata: dict) -> dict:
+    try:
+        parsed = _parse_dicom_waveform(file_path)
+    except ValueError as exc:
+        return {
+            "mode": "dicom_parse_failed",
+            "reason": str(exc),
+            "converter_warnings": [str(exc)],
+            "target_input_shape": metadata.get("input_shape"),
+        }
+    return _build_signal_preprocessing_payload("dicom_waveform_converter", parsed, metadata)
+
+
+def _build_xml_preprocessing_info(file_path: str, metadata: dict) -> dict:
+    try:
+        parsed = _parse_aecg_xml(file_path)
+    except ValueError as exc:
+        return {
+            "mode": "aecg_xml_parse_failed",
+            "reason": str(exc),
+            "converter_warnings": [str(exc)],
+            "target_input_shape": metadata.get("input_shape"),
+        }
+    return _build_signal_preprocessing_payload("aecg_xml_converter", parsed, metadata)
+
+
+def _build_signal_preprocessing_payload(mode: str, parsed: dict, metadata: dict) -> dict:
+    signal = parsed["signal"]
+    channel_count, sample_count = signal.shape
+    sample_rate = parsed["sample_rate_hz"] or metadata.get("sample_rate")
+    duration_sec = None
+    if sample_rate:
+        duration_sec = round(sample_count / float(sample_rate), 4)
+
+    return {
+        "mode": mode,
+        "sample_rate_hz": sample_rate,
+        "channels": parsed["channels"],
+        "duration_sec": duration_sec,
+        "matrix_shape": [channel_count, sample_count],
+        "signal_preview": _build_signal_preview(signal, sample_rate, parsed["channels"]),
+        "converter_warnings": parsed["warnings"],
+        "target_input_shape": metadata.get("input_shape"),
+    }
+
+
+def _parse_dicom_waveform(file_path: str) -> dict:
+    try:
+        import pydicom
+    except ImportError as exc:
+        raise ValueError("pydicom paketi yuklu degil; DICOM waveform okunamadi.") from exc
+
+    try:
+        dataset = pydicom.dcmread(file_path)
+    except Exception as exc:
+        raise ValueError(f"DICOM dosyasi okunamadi: {exc}") from exc
+
+    sequence = getattr(dataset, "WaveformSequence", None)
+    if not sequence:
+        raise ValueError("Bu DICOM dosyasi waveform verisi icermiyor.")
+
+    item = sequence[0]
+    channel_count = int(getattr(item, "NumberOfWaveformChannels", 0) or 0)
+    sample_count = int(getattr(item, "NumberOfWaveformSamples", 0) or 0)
+    if channel_count <= 0 or sample_count <= 0:
+        raise ValueError("DICOM waveform kanal veya sample bilgisi eksik.")
+
+    waveform_data = getattr(item, "WaveformData", None)
+    if waveform_data is None:
+        raise ValueError("DICOM waveform data alani bulunamadi.")
+
+    bits_allocated = int(getattr(item, "WaveformBitsAllocated", 16) or 16)
+    dtype = np.int8 if bits_allocated <= 8 else np.int16
+    values = np.frombuffer(waveform_data, dtype=dtype)
+    expected = channel_count * sample_count
+    if values.size < expected:
+        raise ValueError("DICOM waveform data beklenen matris boyutundan kisa.")
+    signal = values[:expected].reshape(sample_count, channel_count).astype(np.float32).T
+    sample_rate = getattr(item, "SamplingFrequency", None)
+    channels = _read_dicom_channel_names(item, channel_count)
+
+    return {
+        "signal": np.nan_to_num(signal, nan=0.0, posinf=0.0, neginf=0.0),
+        "sample_rate_hz": float(sample_rate) if sample_rate else None,
+        "channels": channels,
+        "warnings": [],
+    }
+
+
+def _read_dicom_channel_names(waveform_item, channel_count: int) -> list[str]:
+    names = []
+    for index, channel in enumerate(getattr(waveform_item, "ChannelDefinitionSequence", []) or []):
+        source = getattr(channel, "ChannelSourceSequence", None)
+        label = None
+        if source:
+            label = getattr(source[0], "CodeMeaning", None) or getattr(source[0], "CodeValue", None)
+        names.append(label or f"CH{index + 1:03d}")
+    if len(names) < channel_count:
+        names.extend(f"CH{index + 1:03d}" for index in range(len(names), channel_count))
+    return names[:channel_count]
+
+
+def _parse_aecg_xml(file_path: str) -> dict:
+    try:
+        root = ET.parse(file_path).getroot()
+    except Exception as exc:
+        raise ValueError(f"aECG XML dosyasi okunamadi: {exc}") from exc
+
+    sample_rate = _find_first_float(root, {"sample_rate", "sampleRate", "samplingFrequency", "sampling_frequency"})
+    leads = []
+    for element in root.iter():
+        tag = _local_name(element.tag).lower()
+        if tag not in {"lead", "channel", "sequence"}:
+            continue
+        values = _parse_numeric_text(element.text or "")
+        if not values:
+            values = _parse_numeric_text(element.attrib.get("values", ""))
+        if not values:
+            continue
+        label = (
+            element.attrib.get("name")
+            or element.attrib.get("label")
+            or element.attrib.get("code")
+            or f"CH{len(leads) + 1:03d}"
+        )
+        leads.append((label, values))
+
+    if not leads:
+        values = _parse_numeric_text(" ".join(root.itertext()))
+        if not values:
+            raise ValueError("aECG XML icinde sayisal sinyal verisi bulunamadi.")
+        leads = [("I", values)]
+
+    min_length = min(len(values) for _, values in leads)
+    if min_length <= 0:
+        raise ValueError("aECG XML sinyal uzunlugu gecersiz.")
+
+    signal = np.asarray([values[:min_length] for _, values in leads], dtype=np.float32)
+    return {
+        "signal": np.nan_to_num(signal, nan=0.0, posinf=0.0, neginf=0.0),
+        "sample_rate_hz": sample_rate,
+        "channels": [label for label, _ in leads],
+        "warnings": [],
+    }
+
+
+def _local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _find_first_float(root: ET.Element, names: set[str]) -> float | None:
+    normalized_names = {name.lower() for name in names}
+    for element in root.iter():
+        tag = _local_name(element.tag).lower()
+        if tag in normalized_names:
+            value = _coerce_float(element.text)
+            if value is not None:
+                return value
+        for key, raw_value in element.attrib.items():
+            if key.lower() in normalized_names:
+                value = _coerce_float(raw_value)
+                if value is not None:
+                    return value
+    return None
+
+
+def _parse_numeric_text(text: str) -> list[float]:
+    values = []
+    for token in text.replace(",", " ").replace(";", " ").split():
+        value = _coerce_float(token)
+        if value is not None:
+            values.append(value)
+    return values
+
+
+def _coerce_float(value: str | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value.strip())
+    except (AttributeError, ValueError):
+        return None
+
+
 def _build_wfdb_preprocessing_info(file_path: str, metadata: dict) -> dict:
     try:
         parsed = _parse_wfdb_record(file_path)
@@ -108,24 +297,7 @@ def _build_wfdb_preprocessing_info(file_path: str, metadata: dict) -> dict:
             "converter_warnings": [str(exc)],
             "target_input_shape": metadata.get("input_shape"),
         }
-
-    signal = parsed["signal"]
-    channel_count, sample_count = signal.shape
-    sample_rate = parsed["sample_rate_hz"] or metadata.get("sample_rate")
-    duration_sec = None
-    if sample_rate:
-        duration_sec = round(sample_count / float(sample_rate), 4)
-
-    return {
-        "mode": "wfdb_converter",
-        "sample_rate_hz": sample_rate,
-        "channels": parsed["channels"],
-        "duration_sec": duration_sec,
-        "matrix_shape": [channel_count, sample_count],
-        "signal_preview": _build_signal_preview(signal, sample_rate, parsed["channels"]),
-        "converter_warnings": parsed["warnings"],
-        "target_input_shape": metadata.get("input_shape"),
-    }
+    return _build_signal_preprocessing_payload("wfdb_converter", parsed, metadata)
 
 
 def _parse_wfdb_record(file_path: str) -> dict:

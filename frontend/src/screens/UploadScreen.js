@@ -8,20 +8,20 @@ import { api, getApiErrorMessage } from '../services/api';
 import { colors, spacing } from '../styles/theme';
 
 const signalTypes = [
-  { label: 'ECG', value: 'ecg', note: '.csv, .txt, .dat/.hea' },
+  { label: 'ECG', value: 'ecg', note: '.csv, .txt, .dat/.hea, .dcm, .xml' },
   { label: 'EEG', value: 'eeg', note: '.edf - experimental' },
 ];
 
 const allowed = {
-  ecg: ['dat', 'hea', 'csv', 'txt'],
+  ecg: ['dat', 'hea', 'csv', 'txt', 'dcm', 'xml'],
   eeg: ['edf'],
 };
 
 const formatGuide = {
   ecg: {
-    supported: '.csv, .txt, .dat + .hea',
-    planned: '.dcm, .xml',
-    note: 'WFDB kayitlari icin .dat ve ayni isimli .hea dosyasini birlikte sec. CSV/TXT tek dosya olarak yuklenebilir.',
+    supported: '.csv, .txt, .dat + .hea, .dcm, .xml',
+    planned: 'DICOM/XML vendor varyasyon testleri',
+    note: 'WFDB kayitlari icin .dat ve ayni isimli .hea dosyasini birlikte sec. DICOM waveform .dcm ve aECG .xml tek dosya olarak yuklenebilir.',
   },
   eeg: {
     supported: '.edf',

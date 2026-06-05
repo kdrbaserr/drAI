@@ -329,6 +329,61 @@ def test_ecg_wfdb_parser_reads_record_metadata(monkeypatch, tmp_path):
     assert preprocessing["matrix_shape"] == [2, 3]
 
 
+def test_ecg_aecg_xml_parser_reads_signal_metadata(tmp_path):
+    xml_path = tmp_path / "aecg.xml"
+    xml_path.write_text(
+        """
+        <AnnotatedECG sampleRate="500">
+          <lead name="I">0.10 0.11 0.12</lead>
+          <lead name="II">0.20 0.21 0.22</lead>
+        </AnnotatedECG>
+        """,
+        encoding="utf-8",
+    )
+
+    result = ecg_inference.predict_ecg(str(xml_path))
+    preprocessing = result["preprocessing_info"]
+
+    assert preprocessing["mode"] == "aecg_xml_converter"
+    assert preprocessing["sample_rate_hz"] == 500.0
+    assert preprocessing["channels"] == ["I", "II"]
+    assert preprocessing["matrix_shape"] == [2, 3]
+
+
+def test_ecg_dicom_waveform_parser_reads_signal_metadata(monkeypatch, tmp_path):
+    dcm_path = tmp_path / "waveform.dcm"
+    dcm_path.write_bytes(b"fake-dicom")
+
+    class FakeCode:
+        CodeMeaning = "Lead I"
+        CodeValue = "I"
+
+    class FakeChannel:
+        ChannelSourceSequence = [FakeCode()]
+
+    class FakeWaveform:
+        NumberOfWaveformChannels = 1
+        NumberOfWaveformSamples = 3
+        WaveformBitsAllocated = 16
+        SamplingFrequency = 500
+        WaveformData = __import__("numpy").array([10, 11, 12], dtype="int16").tobytes()
+        ChannelDefinitionSequence = [FakeChannel()]
+
+    class FakeDataset:
+        WaveformSequence = [FakeWaveform()]
+
+    fake_pydicom = types.SimpleNamespace(dcmread=lambda _: FakeDataset())
+    monkeypatch.setitem(sys.modules, "pydicom", fake_pydicom)
+
+    result = ecg_inference.predict_ecg(str(dcm_path))
+    preprocessing = result["preprocessing_info"]
+
+    assert preprocessing["mode"] == "dicom_waveform_converter"
+    assert preprocessing["sample_rate_hz"] == 500.0
+    assert preprocessing["channels"] == ["Lead I"]
+    assert preprocessing["matrix_shape"] == [1, 3]
+
+
 def test_ecg_multi_file_wfdb_upload_keeps_pair_together(db_session, monkeypatch):
     def fake_predict(path):
         dat_path = Path(path)
@@ -376,6 +431,41 @@ def test_ecg_hea_without_dat_is_rejected_and_audited(db_session):
     assert "matching .dat" in response.json()["detail"]
     audit_log = db_session.query(AuditLog).one()
     assert audit_log.status == "rejected"
+
+
+def test_ecg_dicom_and_xml_extensions_are_accepted(db_session, monkeypatch):
+    seen = []
+
+    def fake_predict(path):
+        seen.append(Path(path).suffix)
+        return {
+            "status": "success",
+            "prediction": "Normal Sinus Rhythm",
+            "confidence": 0.9,
+            "model_version": "1.0.0",
+            "all_probabilities": {"Normal Sinus Rhythm": 0.9},
+            "preprocessing_info": {
+                "mode": "dicom_or_xml_test",
+                "sample_rate_hz": 500,
+                "channels": ["I"],
+                "matrix_shape": [1, 2],
+            },
+        }
+
+    monkeypatch.setattr(analyze_router, "predict_ecg", fake_predict)
+
+    dicom_response = client.post(
+        "/api/v1/analyze/ecg",
+        files={"file": ("waveform.dcm", b"dicom", "application/dicom")},
+    )
+    xml_response = client.post(
+        "/api/v1/analyze/ecg",
+        files={"file": ("aecg.xml", b"<ecg />", "application/xml")},
+    )
+
+    assert dicom_response.status_code == 200
+    assert xml_response.status_code == 200
+    assert seen == [".dcm", ".xml"]
 
 
 def test_invalid_file_extension_is_rejected_and_audited(db_session):
