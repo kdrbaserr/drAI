@@ -1,0 +1,10 @@
+Starting project at C:\Users\kadir\.gemini\antigravity\scratch\DrAI\frontend
+Starting Metro Bundler
+warning: Bundler cache is empty, rebuilding (this may take a minute)
+Waiting on http://localhost:8081
+Logs for your project will appear below.
+Android .\index.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android .\index.js ▓▓▓▓▓░░░░░░░░░░░ 31.8% (234/415)
+Android .\index.js ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░ 99.6% (1026/1051)
+Android Bundled 8201ms index.js (1075 modules)
+ WARN  SafeAreaView has been deprecated and will be removed in a future release. Please use 'react-native-safe-area-context' instead. See https://github.com/th3rdwave/react-native-safe-area-context
