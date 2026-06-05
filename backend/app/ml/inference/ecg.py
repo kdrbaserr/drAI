@@ -61,6 +61,9 @@ def predict_ecg(file_path: str):
 
 def _build_preprocessing_info(file_path: str, metadata: dict) -> dict:
     extension = Path(file_path).suffix.lower()
+    if extension in {".dat", ".hea"}:
+        return _build_wfdb_preprocessing_info(file_path, metadata)
+
     if extension not in {".csv", ".txt"}:
         return {
             "mode": "demo_fallback",
@@ -92,6 +95,75 @@ def _build_preprocessing_info(file_path: str, metadata: dict) -> dict:
         "signal_preview": _build_signal_preview(signal, sample_rate, parsed["channels"]),
         "converter_warnings": parsed["warnings"],
         "target_input_shape": metadata.get("input_shape"),
+    }
+
+
+def _build_wfdb_preprocessing_info(file_path: str, metadata: dict) -> dict:
+    try:
+        parsed = _parse_wfdb_record(file_path)
+    except ValueError as exc:
+        return {
+            "mode": "wfdb_parse_failed",
+            "reason": str(exc),
+            "converter_warnings": [str(exc)],
+            "target_input_shape": metadata.get("input_shape"),
+        }
+
+    signal = parsed["signal"]
+    channel_count, sample_count = signal.shape
+    sample_rate = parsed["sample_rate_hz"] or metadata.get("sample_rate")
+    duration_sec = None
+    if sample_rate:
+        duration_sec = round(sample_count / float(sample_rate), 4)
+
+    return {
+        "mode": "wfdb_converter",
+        "sample_rate_hz": sample_rate,
+        "channels": parsed["channels"],
+        "duration_sec": duration_sec,
+        "matrix_shape": [channel_count, sample_count],
+        "signal_preview": _build_signal_preview(signal, sample_rate, parsed["channels"]),
+        "converter_warnings": parsed["warnings"],
+        "target_input_shape": metadata.get("input_shape"),
+    }
+
+
+def _parse_wfdb_record(file_path: str) -> dict:
+    path = Path(file_path)
+    record_base = path.with_suffix("")
+    header_path = record_base.with_suffix(".hea")
+    data_path = record_base.with_suffix(".dat")
+    if not header_path.exists() or not data_path.exists():
+        raise ValueError("WFDB ECG icin ayni kayit adina sahip .dat ve .hea dosyalari birlikte yuklenmeli.")
+
+    try:
+        import wfdb
+    except ImportError as exc:
+        raise ValueError("wfdb paketi yuklu degil; .dat/.hea ECG kaydi okunamadi.") from exc
+
+    try:
+        record = wfdb.rdrecord(str(record_base))
+    except Exception as exc:
+        raise ValueError(f"WFDB kaydi okunamadi: {exc}") from exc
+
+    signal = record.p_signal
+    if signal is None:
+        signal = record.d_signal
+    if signal is None:
+        raise ValueError("WFDB kaydinda okunabilir sinyal matrisi bulunamadi.")
+
+    signal = np.asarray(signal, dtype=np.float32).T
+    signal = np.nan_to_num(signal, nan=0.0, posinf=0.0, neginf=0.0)
+    channel_count = signal.shape[0]
+    channels = list(record.sig_name or [])[:channel_count]
+    if len(channels) < channel_count:
+        channels = channels + [f"CH{index + 1:03d}" for index in range(len(channels), channel_count)]
+
+    return {
+        "signal": signal,
+        "sample_rate_hz": float(record.fs) if record.fs else None,
+        "channels": channels,
+        "warnings": [],
     }
 
 

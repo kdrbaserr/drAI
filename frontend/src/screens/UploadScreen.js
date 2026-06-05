@@ -8,39 +8,39 @@ import { api, getApiErrorMessage } from '../services/api';
 import { colors, spacing } from '../styles/theme';
 
 const signalTypes = [
-  { label: 'ECG', value: 'ecg', note: '.csv, .txt, .dat' },
-  { label: 'EEG', value: 'eeg', note: '.edf · experimental' },
+  { label: 'ECG', value: 'ecg', note: '.csv, .txt, .dat/.hea' },
+  { label: 'EEG', value: 'eeg', note: '.edf - experimental' },
 ];
 
 const allowed = {
-  ecg: ['dat', 'csv', 'txt'],
+  ecg: ['dat', 'hea', 'csv', 'txt'],
   eeg: ['edf'],
 };
 
 const formatGuide = {
   ecg: {
-    supported: '.csv, .txt, .dat',
-    planned: '.hea, .dcm, .xml',
-    note: 'WFDB kayıtlarında .dat dosyası çoğu zaman aynı isimli .hea başlığıyla gelir; .hea desteği sonraki backend adımında eklenecek.',
+    supported: '.csv, .txt, .dat + .hea',
+    planned: '.dcm, .xml',
+    note: 'WFDB kayitlari icin .dat ve ayni isimli .hea dosyasini birlikte sec. CSV/TXT tek dosya olarak yuklenebilir.',
   },
   eeg: {
     supported: '.edf',
     planned: '.bdf, .vhdr/.vmrk/.eeg',
-    note: 'BrainVision kayıtları üçlü dosya grubudur; .vhdr, .vmrk ve .eeg aynı kayıt seti olarak tutulmalıdır.',
+    note: 'BrainVision kayitlari uclu dosya grubudur; .vhdr, .vmrk ve .eeg ayni kayit seti olarak tutulmalidir.',
   },
 };
 
 const multiFileWarnings = {
-  dat: 'WFDB formatı genelde .dat + .hea çifti ister; .hea desteği sonraki backend adımında gelecek.',
-  hea: 'WFDB için .dat dosyası da gerekir; şu an backend .hea upload kabul etmiyor.',
-  vhdr: 'BrainVision için .vhdr + .vmrk + .eeg dosyaları birlikte gerekir.',
-  vmrk: 'BrainVision için .vhdr + .vmrk + .eeg dosyaları birlikte gerekir.',
-  eeg: 'BrainVision için .vhdr + .vmrk + .eeg dosyaları birlikte gerekir.',
+  dat: 'WFDB icin ayni kayit adina sahip .dat + .hea dosyalarini birlikte sec.',
+  hea: 'WFDB icin ayni kayit adina sahip .dat + .hea dosyalarini birlikte sec.',
+  vhdr: 'BrainVision icin .vhdr + .vmrk + .eeg dosyalari birlikte gerekir.',
+  vmrk: 'BrainVision icin .vhdr + .vmrk + .eeg dosyalari birlikte gerekir.',
+  eeg: 'BrainVision icin .vhdr + .vmrk + .eeg dosyalari birlikte gerekir.',
 };
 
 export function UploadScreen({ navigation }) {
   const [signalType, setSignalType] = React.useState('ecg');
-  const [file, setFile] = React.useState(null);
+  const [files, setFiles] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState('');
 
@@ -49,7 +49,7 @@ export function UploadScreen({ navigation }) {
     try {
       const response = await DocumentPicker.getDocumentAsync({
         copyToCacheDirectory: true,
-        multiple: false,
+        multiple: signalType === 'ecg',
         type: [
           'text/csv',
           'text/plain',
@@ -61,47 +61,49 @@ export function UploadScreen({ navigation }) {
         ],
       });
       if (response.canceled) return;
-      const selected = response.assets?.[0];
-      if (!selected) {
-        setError('Dosya seçilemedi.');
+      const selected = response.assets || [];
+      if (!selected.length) {
+        setError('Dosya secilemedi.');
         return;
       }
-      setFile(selected);
+      setFiles(selected);
     } catch {
-      setError('Dosya seçme işlemi tamamlanamadı.');
+      setError('Dosya secme islemi tamamlanamadi.');
     }
   };
 
   const analyze = async () => {
-    if (!file) {
-      setError('Önce bir dosya seç.');
+    if (!files.length) {
+      setError('Once bir dosya sec.');
       return;
     }
 
-    const extension = getFileExtension(file.name);
-    if (!allowed[signalType].includes(extension)) {
-      setError(`${signalType.toUpperCase()} analizi için ${allowed[signalType].map((item) => `.${item}`).join(', ')} dosyası gerekli.`);
+    const validationError = validateSelection(files, signalType);
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
     setError('');
     setLoading(true);
     const formData = new FormData();
-    await appendUploadFile(formData, file);
+    await appendUploadFiles(formData, files, signalType);
 
     try {
       const response = await api.post(`/analyze/${signalType}`, formData);
       navigation.navigate('Result', { result: response.data });
     } catch (err) {
-      setError(getApiErrorMessage(err, 'Backend yanıt vermedi. Demo sonucunu görüntüleyebilirsin.'));
+      setError(getApiErrorMessage(err, 'Backend yanit vermedi. Demo sonucunu goruntuleyebilirsin.'));
     } finally {
       setLoading(false);
     }
   };
 
-  const selectedExtension = getFileExtension(file?.name);
   const selectedGuide = formatGuide[signalType];
-  const multiFileWarning = multiFileWarnings[selectedExtension];
+  const selectedExtensions = files.map((item) => getFileExtension(item.name)).filter(Boolean);
+  const primaryExtension = selectedExtensions[0];
+  const multiFileWarning = multiFileWarnings[primaryExtension];
+  const selectedNames = files.map((item) => item.name).join(', ');
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -110,18 +112,22 @@ export function UploadScreen({ navigation }) {
         <BackButton onPress={() => navigation.goBack()} />
         <ScreenTitle
           eyebrow="Analyze"
-          title="Sinyal dosyasını yükle"
-          subtitle="ECG ve EEG dosyaları backend converter katmanında standart sinyal formatına hazırlanır."
+          title="Sinyal dosyasini yukle"
+          subtitle="ECG ve EEG dosyalari backend converter katmaninda standart sinyal formatina hazirlanir."
         />
 
         <Card style={styles.card}>
-          <Text style={styles.label}>Sinyal türü</Text>
+          <Text style={styles.label}>Sinyal turu</Text>
           <View style={styles.segment}>
             {signalTypes.map((type) => (
               <Pressable
                 key={type.value}
                 style={[styles.segmentItem, signalType === type.value && styles.segmentActive]}
-                onPress={() => setSignalType(type.value)}
+                onPress={() => {
+                  setSignalType(type.value);
+                  setFiles([]);
+                  setError('');
+                }}
               >
                 <Text style={[styles.segmentTitle, signalType === type.value && styles.segmentTitleActive]}>{type.label}</Text>
                 <Text style={styles.segmentNote}>{type.note}</Text>
@@ -133,11 +139,11 @@ export function UploadScreen({ navigation }) {
         <Card style={styles.card}>
           <Text style={styles.label}>Format rehberi</Text>
           <View style={styles.guideRow}>
-            <Text style={styles.guideKey}>Şu an</Text>
+            <Text style={styles.guideKey}>Su an</Text>
             <Text style={styles.guideValue}>{selectedGuide.supported}</Text>
           </View>
           <View style={styles.guideRow}>
-            <Text style={styles.guideKey}>Sıradaki</Text>
+            <Text style={styles.guideKey}>Siradaki</Text>
             <Text style={styles.guideValue}>{selectedGuide.planned}</Text>
           </View>
           <Text style={styles.guideNote}>{selectedGuide.note}</Text>
@@ -146,9 +152,9 @@ export function UploadScreen({ navigation }) {
         <Pressable onPress={pickFile}>
           <Card style={styles.dropzone}>
             <Pill label="drag & drop ready" tone="amber" />
-            <Text style={styles.dropTitle}>{file ? file.name : 'Dosya seç'}</Text>
+            <Text style={styles.dropTitle}>{files.length ? selectedNames : 'Dosya sec'}</Text>
             <Text style={styles.dropMeta}>Desteklenen formatlar: {selectedGuide.supported}</Text>
-            {file ? <Text style={styles.dropMeta}>Seçilen dosya türü: .{selectedExtension || 'bilinmiyor'}</Text> : null}
+            {files.length ? <Text style={styles.dropMeta}>Secilen dosya turleri: {selectedExtensions.map((item) => `.${item}`).join(', ')}</Text> : null}
           </Card>
         </Pressable>
 
@@ -167,11 +173,38 @@ export function UploadScreen({ navigation }) {
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
-        <Button title="Analyze" onPress={analyze} loading={loading} disabled={!file} />
-        <Button title="Demo sonucunu aç" variant="secondary" onPress={() => navigation.navigate('Result', { result: mockResult })} />
+        <Button title="Analyze" onPress={analyze} loading={loading} disabled={!files.length} />
+        <Button title="Demo sonucunu ac" variant="secondary" onPress={() => navigation.navigate('Result', { result: mockResult })} />
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+function validateSelection(selectedFiles, signalType) {
+  const extensions = selectedFiles.map((item) => getFileExtension(item.name));
+  const invalid = extensions.find((extension) => !allowed[signalType].includes(extension));
+  if (invalid) {
+    return `${signalType.toUpperCase()} analizi icin ${allowed[signalType].map((item) => `.${item}`).join(', ')} dosyasi gerekli.`;
+  }
+
+  if (signalType === 'ecg') {
+    const hasDat = extensions.includes('dat');
+    const hasHea = extensions.includes('hea');
+    if (hasDat !== hasHea) {
+      return 'WFDB kaydi icin .dat ve ayni isimli .hea dosyasini birlikte sec.';
+    }
+    if (hasDat && !wfdbStemsMatch(selectedFiles)) {
+      return 'WFDB .dat ve .hea dosyalari ayni kayit adina sahip olmali.';
+    }
+  }
+
+  return '';
+}
+
+function wfdbStemsMatch(selectedFiles) {
+  const wfdbFiles = selectedFiles.filter((item) => ['dat', 'hea'].includes(getFileExtension(item.name)));
+  const stems = new Set(wfdbFiles.map((item) => item.name.replace(/\.[^.]+$/, '')));
+  return stems.size <= 1;
 }
 
 function getFileExtension(filename = '') {
@@ -186,20 +219,27 @@ function getMimeType(filename) {
   return 'application/octet-stream';
 }
 
-async function appendUploadFile(formData, selectedFile) {
+async function appendUploadFiles(formData, selectedFiles, signalType) {
+  const fieldName = signalType === 'ecg' && selectedFiles.length > 1 ? 'files' : 'file';
+  for (const selectedFile of selectedFiles) {
+    await appendUploadFile(formData, selectedFile, fieldName);
+  }
+}
+
+async function appendUploadFile(formData, selectedFile, fieldName) {
   if (Platform.OS === 'web') {
     if (selectedFile.file instanceof Blob) {
-      formData.append('file', selectedFile.file, selectedFile.name);
+      formData.append(fieldName, selectedFile.file, selectedFile.name);
       return;
     }
 
     const response = await fetch(selectedFile.uri);
     const blob = await response.blob();
-    formData.append('file', blob, selectedFile.name);
+    formData.append(fieldName, blob, selectedFile.name);
     return;
   }
 
-  formData.append('file', {
+  formData.append(fieldName, {
     uri: selectedFile.uri,
     name: selectedFile.name,
     type: selectedFile.mimeType || getMimeType(selectedFile.name),
