@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from app.routers import auth, analyze, history, results, model
+from app.routers import auth, analyze, history, results, model, convert
 from app.database import get_db
 from app.schemas.core import HealthResponse
 
@@ -33,6 +33,7 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(analyze.router)
+app.include_router(convert.router)
 app.include_router(history.router)
 app.include_router(results.router)
 app.include_router(model.router)
@@ -40,6 +41,7 @@ app.include_router(model.router)
 api_v1 = APIRouter(prefix="/api/v1")
 api_v1.include_router(auth.router)
 api_v1.include_router(analyze.router)
+api_v1.include_router(convert.router)
 api_v1.include_router(history.router)
 api_v1.include_router(results.router)
 api_v1.include_router(model.router)

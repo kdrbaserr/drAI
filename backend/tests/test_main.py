@@ -17,6 +17,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import app.routers.analyze as analyze_router
+import app.routers.convert as convert_router
 import app.ml.inference.ecg as ecg_inference
 import app.ml.inference.eeg as eeg_inference
 from app.database import Base, get_db
@@ -466,6 +467,92 @@ def test_ecg_dicom_and_xml_extensions_are_accepted(db_session, monkeypatch):
     assert dicom_response.status_code == 200
     assert xml_response.status_code == 200
     assert seen == [".dcm", ".xml"]
+
+
+def test_convert_preview_ecg_returns_standard_signal(db_session, monkeypatch):
+    monkeypatch.setattr(
+        convert_router,
+        "preview_ecg",
+        lambda _: {
+            "readable": True,
+            "preprocessing_info": {
+                "mode": "parsed_numeric_ecg",
+                "sample_rate_hz": 500,
+                "channels": ["I"],
+                "duration_sec": 0.004,
+                "matrix_shape": [1, 2],
+            },
+            "converter_warnings": [],
+        },
+    )
+
+    response = client.post(
+        "/api/v1/convert/preview/ecg",
+        files={"file": ("sample.csv", b"0,0.1\n0.002,0.2", "text/csv")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["readable"] is True
+    assert payload["filenames"] == ["sample.csv"]
+    assert payload["standard_signal"]["source_format"] == "csv"
+    assert payload["standard_signal"]["matrix_shape"] == [1, 2]
+
+
+def test_convert_preview_ecg_reports_unreadable_file(db_session, monkeypatch):
+    monkeypatch.setattr(
+        convert_router,
+        "preview_ecg",
+        lambda _: {
+            "readable": False,
+            "preprocessing_info": {
+                "mode": "parse_failed",
+                "converter_warnings": ["no numeric signal"],
+            },
+            "converter_warnings": ["no numeric signal"],
+            "error": "no numeric signal",
+        },
+    )
+
+    response = client.post(
+        "/api/v1/convert/preview/ecg",
+        files={"file": ("sample.csv", b"bad", "text/csv")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["readable"] is False
+    assert payload["error"] == "no numeric signal"
+    assert payload["converter_warnings"] == ["no numeric signal"]
+
+
+def test_convert_preview_eeg_returns_standard_signal(db_session, monkeypatch):
+    monkeypatch.setattr(
+        convert_router,
+        "preview_eeg",
+        lambda _: {
+            "readable": True,
+            "preprocessing_info": {
+                "mode": "mne_edf_converter",
+                "sample_rate_hz": 256,
+                "channels": ["Fp1"],
+                "duration_sec": 2,
+                "matrix_shape": [68, 512],
+            },
+            "converter_warnings": [],
+        },
+    )
+
+    response = client.post(
+        "/api/v1/convert/preview/eeg",
+        files={"file": ("sample.edf", b"edf", "application/octet-stream")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["signal_type"] == "eeg"
+    assert payload["standard_signal"]["source_format"] == "edf"
+    assert payload["standard_signal"]["sample_rate_hz"] == 256
 
 
 def test_invalid_file_extension_is_rejected_and_audited(db_session):

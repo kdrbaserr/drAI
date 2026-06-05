@@ -41,6 +41,8 @@ const multiFileWarnings = {
 export function UploadScreen({ navigation }) {
   const [signalType, setSignalType] = React.useState('ecg');
   const [files, setFiles] = React.useState([]);
+  const [preview, setPreview] = React.useState(null);
+  const [previewLoading, setPreviewLoading] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState('');
 
@@ -67,8 +69,37 @@ export function UploadScreen({ navigation }) {
         return;
       }
       setFiles(selected);
+      setPreview(null);
     } catch {
       setError('Dosya secme islemi tamamlanamadi.');
+    }
+  };
+
+  const previewConversion = async () => {
+    if (!files.length) {
+      setError('Once bir dosya sec.');
+      return;
+    }
+
+    const validationError = validateSelection(files, signalType);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setError('');
+    setPreview(null);
+    setPreviewLoading(true);
+    const formData = new FormData();
+    await appendUploadFiles(formData, files, signalType);
+
+    try {
+      const response = await api.post(`/convert/preview/${signalType}`, formData);
+      setPreview(response.data);
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Converter preview alinamadi.'));
+    } finally {
+      setPreviewLoading(false);
     }
   };
 
@@ -124,10 +155,11 @@ export function UploadScreen({ navigation }) {
                 key={type.value}
                 style={[styles.segmentItem, signalType === type.value && styles.segmentActive]}
                 onPress={() => {
-                  setSignalType(type.value);
-                  setFiles([]);
-                  setError('');
-                }}
+          setSignalType(type.value);
+          setFiles([]);
+          setPreview(null);
+          setError('');
+        }}
               >
                 <Text style={[styles.segmentTitle, signalType === type.value && styles.segmentTitleActive]}>{type.label}</Text>
                 <Text style={styles.segmentNote}>{type.note}</Text>
@@ -164,6 +196,15 @@ export function UploadScreen({ navigation }) {
           </View>
         ) : null}
 
+        {previewLoading ? (
+          <Card style={styles.loader}>
+            <ActivityIndicator color={colors.cyan} />
+            <Text style={styles.loaderText}>Converter preview hazirlaniyor...</Text>
+          </Card>
+        ) : null}
+
+        {preview ? <PreviewPanel preview={preview} /> : null}
+
         {loading ? (
           <Card style={styles.loader}>
             <ActivityIndicator color={colors.green} />
@@ -173,10 +214,46 @@ export function UploadScreen({ navigation }) {
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
+        <Button title="Preview converter" variant="secondary" onPress={previewConversion} loading={previewLoading} disabled={!files.length} />
         <Button title="Analyze" onPress={analyze} loading={loading} disabled={!files.length} />
         <Button title="Demo sonucunu ac" variant="secondary" onPress={() => navigation.navigate('Result', { result: mockResult })} />
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function PreviewPanel({ preview }) {
+  const signal = preview.standard_signal || {};
+  const statusLabel = preview.readable ? 'Okunabilir' : 'Okunamadi';
+  const statusStyle = preview.readable ? styles.previewStatusOk : styles.previewStatusError;
+  return (
+    <Card style={styles.previewCard}>
+      <View style={styles.previewHeader}>
+        <Text style={styles.label}>Converter preview</Text>
+        <Text style={[styles.previewStatus, statusStyle]}>{statusLabel}</Text>
+      </View>
+      <View style={styles.previewGrid}>
+        <PreviewItem label="Format" value={signal.source_format || '-'} />
+        <PreviewItem label="Sample rate" value={signal.sample_rate_hz ? `${signal.sample_rate_hz} Hz` : '-'} />
+        <PreviewItem label="Kanal" value={signal.channels?.length ? String(signal.channels.length) : '-'} />
+        <PreviewItem label="Sure" value={signal.duration_sec ? `${signal.duration_sec} sn` : '-'} />
+        <PreviewItem label="Shape" value={signal.matrix_shape?.join(' x ') || '-'} />
+        <PreviewItem label="Dosya" value={preview.filenames?.join(', ') || '-'} />
+      </View>
+      {preview.error ? <Text style={styles.previewError}>{preview.error}</Text> : null}
+      {preview.converter_warnings?.length ? (
+        <Text style={styles.previewWarning}>{preview.converter_warnings.join(' | ')}</Text>
+      ) : null}
+    </Card>
+  );
+}
+
+function PreviewItem({ label, value }) {
+  return (
+    <View style={styles.previewItem}>
+      <Text style={styles.previewItemLabel}>{label}</Text>
+      <Text style={styles.previewItemValue}>{value}</Text>
+    </View>
   );
 }
 
@@ -347,6 +424,66 @@ const styles = StyleSheet.create({
     color: colors.amber,
     fontSize: 13,
     fontWeight: '800',
+    lineHeight: 19,
+  },
+  previewCard: {
+    gap: 12,
+  },
+  previewHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  previewStatus: {
+    borderRadius: 8,
+    fontSize: 12,
+    fontWeight: '900',
+    overflow: 'hidden',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  previewStatusOk: {
+    backgroundColor: 'rgba(41,245,184,0.12)',
+    color: colors.green,
+  },
+  previewStatusError: {
+    backgroundColor: 'rgba(255,79,104,0.14)',
+    color: colors.red,
+  },
+  previewGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  previewItem: {
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    minWidth: 130,
+    padding: 10,
+  },
+  previewItemLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  previewItemValue: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+    marginTop: 4,
+  },
+  previewError: {
+    color: colors.red,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  previewWarning: {
+    color: colors.amber,
+    fontSize: 13,
     lineHeight: 19,
   },
   loader: {

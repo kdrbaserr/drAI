@@ -234,3 +234,18 @@ def predict_eeg(file_path: str) -> dict:
             "error": str(exc),
             "preprocessing_info": preprocessing_info,
         }
+
+
+def preview_eeg(file_path: str) -> dict:
+    signal = _preprocess_edf(file_path)
+    preprocessing_info = _build_preprocessing_info(file_path, signal)
+    warnings = preprocessing_info.get("converter_warnings", [])
+    readable = not warnings
+    return {
+        "status": "success" if readable else "error",
+        "readable": readable,
+        "model_version": MODEL_VERSION,
+        "preprocessing_info": preprocessing_info,
+        "converter_warnings": warnings,
+        "error": warnings[0] if warnings else None,
+    }
