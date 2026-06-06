@@ -2,7 +2,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class SignalType(str, Enum):
@@ -28,6 +28,74 @@ class SignalPreviewPoint(BaseModel):
     channel: str | None = None
 
     model_config = ConfigDict(extra="forbid")
+
+
+class ExplainabilitySeverity(str, Enum):
+    YELLOW = "yellow"
+    RED = "red"
+
+
+class ExplainabilityMethod(str, Enum):
+    UNAVAILABLE = "unavailable"
+    SALIENCY = "saliency"
+    GRAD_CAM = "grad_cam"
+    ATTENTION = "attention"
+
+
+class NormalSignalPolicy(str, Enum):
+    OMITTED = "omitted"
+    CONTEXT_ONLY = "context_only"
+
+
+class SignalSaliencyPoint(BaseModel):
+    time: float = Field(ge=0)
+    score: float = Field(ge=0, le=1)
+    channel: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SignalHighlightZone(BaseModel):
+    id: str
+    start_time: float = Field(ge=0)
+    end_time: float = Field(ge=0)
+    severity: ExplainabilitySeverity
+    score: float = Field(ge=0, le=1)
+    label: str
+    reason: str
+    channel: str | None = None
+    preview: list[SignalPreviewPoint] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid", use_enum_values=True)
+
+    @model_validator(mode="after")
+    def end_time_must_follow_start_time(self):
+        if self.end_time <= self.start_time:
+            raise ValueError("end_time must be greater than start_time")
+        return self
+
+
+class SignalExplainabilityDisplay(BaseModel):
+    normal_signal_policy: NormalSignalPolicy = NormalSignalPolicy.OMITTED
+    max_highlight_zones: int = Field(default=5, ge=1, le=20)
+    context_window_sec: float = Field(default=0.4, ge=0)
+
+    model_config = ConfigDict(extra="forbid", use_enum_values=True)
+
+
+class SignalExplainability(BaseModel):
+    schema_version: int = 1
+    method: ExplainabilityMethod = ExplainabilityMethod.UNAVAILABLE
+    target_label: str | None = None
+    generated_from_model: bool = False
+    sample_rate_hz: float | None = Field(default=None, gt=0)
+    channels: list[str] = Field(default_factory=list)
+    saliency_scores: list[SignalSaliencyPoint] = Field(default_factory=list)
+    highlight_zones: list[SignalHighlightZone] = Field(default_factory=list)
+    display: SignalExplainabilityDisplay = Field(default_factory=SignalExplainabilityDisplay)
+    warnings: list[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid", use_enum_values=True)
 
 
 class StandardSignalMetadata(BaseModel):
@@ -115,3 +183,37 @@ def build_standard_signal_metadata(
         original_filename=filename,
         content_type=content_type,
     )
+
+
+def build_empty_signal_explainability(
+    *,
+    standard_signal: StandardSignalMetadata,
+    target_label: str | None,
+) -> SignalExplainability:
+    return SignalExplainability(
+        target_label=target_label,
+        sample_rate_hz=standard_signal.sample_rate_hz,
+        channels=standard_signal.channels,
+        warnings=["Model explainability is not available for this analysis yet."],
+    )
+
+
+def normalize_signal_explainability(
+    payload: dict[str, Any] | None,
+    *,
+    standard_signal: StandardSignalMetadata,
+    target_label: str | None,
+) -> SignalExplainability:
+    if not payload:
+        return build_empty_signal_explainability(
+            standard_signal=standard_signal,
+            target_label=target_label,
+        )
+
+    merged = {
+        "target_label": target_label,
+        "sample_rate_hz": standard_signal.sample_rate_hz,
+        "channels": standard_signal.channels,
+        **payload,
+    }
+    return SignalExplainability.model_validate(merged)
