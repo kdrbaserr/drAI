@@ -40,6 +40,7 @@ class ExplainabilityMethod(str, Enum):
     SALIENCY = "saliency"
     GRAD_CAM = "grad_cam"
     ATTENTION = "attention"
+    HEURISTIC = "heuristic"
 
 
 class NormalSignalPolicy(str, Enum):

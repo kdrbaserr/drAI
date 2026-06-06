@@ -465,6 +465,27 @@ def test_ecg_csv_is_parsed_into_standard_preprocessing_metadata():
     assert preprocessing["sample_rate_hz"] == 500.0
     assert preprocessing["matrix_shape"] == [2, 3]
     assert preprocessing["signal_preview"][0]["channel"] == "CH001"
+    assert result["explainability"]["method"] == "heuristic"
+
+
+def test_ecg_txt_generates_heuristic_highlight_zones():
+    values = [0.02, 0.03, 0.01, 0.0, 0.04, 1.4, -0.8, 0.05, 0.03, 0.02]
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as sample:
+        for index, value in enumerate(values):
+            sample.write(f"{index * 0.002} {value}\n")
+        sample_path = sample.name
+
+    try:
+        result = ecg_inference.predict_ecg(sample_path)
+    finally:
+        os.remove(sample_path)
+
+    explainability = result["explainability"]
+    assert explainability["method"] == "heuristic"
+    assert explainability["generated_from_model"] is False
+    assert explainability["highlight_zones"]
+    assert explainability["highlight_zones"][0]["preview"]
+    assert explainability["display"]["normal_signal_policy"] == "omitted"
 
 
 def test_ecg_wfdb_parser_reads_record_metadata(monkeypatch, tmp_path):
