@@ -12,6 +12,8 @@ from pathlib import Path
 import numpy as np
 from dotenv import load_dotenv
 
+from app.ml.explainability import build_gradient_signal_explainability
+
 logger = logging.getLogger(__name__)
 load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 
@@ -190,11 +192,10 @@ def predict_eeg(file_path: str) -> dict:
 
         signal = _preprocess_edf(file_path)
         preprocessing_info = _build_preprocessing_info(file_path, signal)
-        tensor = torch.tensor(signal)
+        tensor = torch.tensor(signal, requires_grad=True)
         model = _load_model()
 
-        with torch.no_grad():
-            output = model(x_enc=tensor)
+        output = model(x_enc=tensor)
 
         if hasattr(output, "logits"):
             logits = output.logits
@@ -214,6 +215,14 @@ def predict_eeg(file_path: str) -> dict:
         confidence = float(probs_py[pred_idx])
         label = LABEL_MAP.get(pred_idx, "unknown")
         all_probs = {LABEL_MAP[i]: round(float(p), 4) for i, p in enumerate(probs_py)}
+        explainability = _build_eeg_explainability(
+            tensor=tensor,
+            logits=logits,
+            pred_idx=pred_idx,
+            signal=signal,
+            preprocessing_info=preprocessing_info,
+            label=label,
+        )
 
         return {
             "status": "success",
@@ -221,6 +230,7 @@ def predict_eeg(file_path: str) -> dict:
             "confidence": round(confidence, 4),
             "all_probabilities": all_probs,
             "model_version": MODEL_VERSION,
+            "explainability": explainability,
             "preprocessing_info": preprocessing_info,
         }
     except Exception as exc:
@@ -233,6 +243,50 @@ def predict_eeg(file_path: str) -> dict:
             "model_version": MODEL_VERSION,
             "error": str(exc),
             "preprocessing_info": preprocessing_info,
+        }
+
+
+def _build_eeg_explainability(
+    *,
+    tensor,
+    logits,
+    pred_idx: int,
+    signal: np.ndarray,
+    preprocessing_info: dict,
+    label: str,
+) -> dict:
+    try:
+        if tensor.grad is not None:
+            tensor.grad.zero_()
+        target_logit = logits.reshape(-1)[pred_idx]
+        target_logit.backward()
+        gradient = tensor.grad.detach().cpu().numpy()
+        saliency = np.abs(gradient * signal)
+        return build_gradient_signal_explainability(
+            signal=signal,
+            saliency=saliency,
+            sample_rate_hz=preprocessing_info.get("sample_rate_hz"),
+            channels=preprocessing_info.get("channels", []),
+            target_label=label,
+            method="saliency",
+        )
+    except Exception as exc:
+        logger.exception("EEG explainability failed: %s", exc)
+        return {
+            "schema_version": 1,
+            "method": "unavailable",
+            "target_label": label,
+            "generated_from_model": False,
+            "sample_rate_hz": preprocessing_info.get("sample_rate_hz"),
+            "channels": preprocessing_info.get("channels", []),
+            "saliency_scores": [],
+            "highlight_zones": [],
+            "display": {
+                "normal_signal_policy": "omitted",
+                "max_highlight_zones": 5,
+                "context_window_sec": 0.4,
+            },
+            "warnings": [f"EEG explainability could not be generated: {exc}"],
         }
 
 

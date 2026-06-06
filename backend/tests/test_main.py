@@ -21,6 +21,7 @@ import app.routers.convert as convert_router
 import app.ml.inference.ecg as ecg_inference
 import app.ml.inference.eeg as eeg_inference
 from app.database import Base, get_db
+from app.ml.explainability import build_gradient_signal_explainability
 from app.main import app
 from app.models.analysis import Analysis
 from app.models.audit_log import AuditLog
@@ -157,6 +158,32 @@ def test_signal_explainability_contract_shape_omits_normal_signal_by_default():
     assert payload["display"]["normal_signal_policy"] == "omitted"
     assert payload["highlight_zones"][0]["severity"] == "red"
     assert payload["highlight_zones"][0]["preview"][0]["channel"] == "II"
+
+
+def test_gradient_explainability_builds_red_and_yellow_highlight_zones_only():
+    np = __import__("numpy")
+    signal = np.sin(np.linspace(0, 8, 200, dtype="float32")).reshape(1, 200)
+    saliency = np.zeros((1, 200), dtype="float32")
+    saliency[:, 40:90] = 0.6
+    saliency[:, 120:170] = 1.0
+
+    explainability = build_gradient_signal_explainability(
+        signal=signal,
+        saliency=saliency,
+        sample_rate_hz=100,
+        channels=["II"],
+        target_label="Atrial Fibrillation",
+        max_zones=3,
+    )
+
+    assert explainability["generated_from_model"] is True
+    assert explainability["method"] == "saliency"
+    assert explainability["display"]["normal_signal_policy"] == "omitted"
+    assert len(explainability["highlight_zones"]) >= 2
+    severities = {zone["severity"] for zone in explainability["highlight_zones"]}
+    assert "red" in severities
+    assert "yellow" in severities
+    assert all(zone["preview"] for zone in explainability["highlight_zones"])
 
 
 def test_protected_endpoint_requires_token():
