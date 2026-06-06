@@ -172,7 +172,8 @@ def test_gradient_explainability_builds_red_and_yellow_highlight_zones_only():
         saliency=saliency,
         sample_rate_hz=100,
         channels=["II"],
-        target_label="Atrial Fibrillation",
+        target_label="left_fist",
+        signal_type="eeg",
         max_zones=3,
     )
 
@@ -184,6 +185,30 @@ def test_gradient_explainability_builds_red_and_yellow_highlight_zones_only():
     assert "red" in severities
     assert "yellow" in severities
     assert all(zone["preview"] for zone in explainability["highlight_zones"])
+    assert all("EEG attention segment" in zone["label"] for zone in explainability["highlight_zones"])
+    assert all("left fist" in zone["reason"] for zone in explainability["highlight_zones"])
+
+
+def test_ecg_explainability_labels_prediction_specific_rhythm_evidence():
+    np = __import__("numpy")
+    signal = np.sin(np.linspace(0, 8, 200, dtype="float32")).reshape(1, 200)
+    saliency = np.zeros((1, 200), dtype="float32")
+    saliency[:, 80:140] = 1.0
+
+    explainability = build_gradient_signal_explainability(
+        signal=signal,
+        saliency=saliency,
+        sample_rate_hz=100,
+        channels=["II"],
+        target_label="Atrial Fibrillation",
+        signal_type="ecg",
+        max_zones=1,
+    )
+
+    zone = explainability["highlight_zones"][0]
+    assert zone["severity"] == "red"
+    assert zone["label"] == "Irregular rhythm evidence"
+    assert "irregular rhythm prediction" in zone["reason"]
 
 
 def test_protected_endpoint_requires_token():
