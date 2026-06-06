@@ -13,6 +13,7 @@ def build_gradient_signal_explainability(
     sample_rate_hz: float | None,
     channels: Sequence[str],
     target_label: str,
+    signal_type: str | None = None,
     method: str = "saliency",
     max_zones: int = 5,
 ) -> dict:
@@ -36,6 +37,8 @@ def build_gradient_signal_explainability(
         signal_matrix,
         sample_rate,
         list(channels),
+        target_label=target_label,
+        signal_type=signal_type,
         max_zones=max_zones,
     )
     saliency_scores = _build_saliency_points(normalized, sample_rate, list(channels))
@@ -85,6 +88,8 @@ def _find_highlight_zones(
     sample_rate: float,
     channels: list[str],
     *,
+    target_label: str,
+    signal_type: str | None,
     max_zones: int,
 ) -> list[dict]:
     sample_count = normalized.shape[1]
@@ -125,6 +130,12 @@ def _find_highlight_zones(
     zones = []
     for index, candidate in enumerate(sorted(selected, key=lambda item: item["start"]), start=1):
         severity = "red" if candidate["score"] >= 0.7 else "yellow"
+        label, reason = _clinical_zone_text(
+            signal_type=signal_type,
+            target_label=target_label,
+            severity=severity,
+            channel=candidate["channel"],
+        )
         zones.append(
             {
                 "id": f"zone-{index}",
@@ -132,8 +143,8 @@ def _find_highlight_zones(
                 "end_time": round(candidate["end"] / sample_rate, 4),
                 "severity": severity,
                 "score": round(candidate["score"], 4),
-                "label": "High model-attention signal segment" if severity == "red" else "Moderate model-attention signal segment",
-                "reason": "The model gradient was concentrated in this time window for the predicted class.",
+                "label": label,
+                "reason": reason,
                 "channel": candidate["channel"],
                 "preview": _build_zone_preview(
                     signal[candidate["channel_index"], candidate["start"] : candidate["end"]],
@@ -144,6 +155,55 @@ def _find_highlight_zones(
             }
         )
     return zones
+
+
+def _clinical_zone_text(
+    *,
+    signal_type: str | None,
+    target_label: str,
+    severity: str,
+    channel: str,
+) -> tuple[str, str]:
+    normalized_label = target_label.lower()
+    intensity = "strongly" if severity == "red" else "moderately"
+
+    if signal_type == "ecg":
+        if "atrial fibrillation" in normalized_label or "fibrillation" in normalized_label:
+            return (
+                "Irregular rhythm evidence",
+                f"The model {intensity} focused on this ECG window while supporting an irregular rhythm prediction.",
+            )
+        if "tachycardia" in normalized_label:
+            return (
+                "Fast rhythm evidence",
+                f"The model {intensity} focused on this ECG window while supporting a tachycardia prediction.",
+            )
+        if "bradycardia" in normalized_label:
+            return (
+                "Slow rhythm evidence",
+                f"The model {intensity} focused on this ECG window while supporting a bradycardia prediction.",
+            )
+        if "normal" in normalized_label:
+            return (
+                "Reference rhythm segment",
+                f"The model {intensity} used this ECG window as supportive evidence for the predicted rhythm class.",
+            )
+        return (
+            "ECG decision-support segment",
+            f"The model {intensity} focused on this ECG window for the predicted class.",
+        )
+
+    if signal_type == "eeg":
+        movement_label = target_label.replace("_", " ")
+        return (
+            f"EEG attention segment on {channel}",
+            f"The model {intensity} focused on channel {channel} in this time window while supporting the '{movement_label}' prediction.",
+        )
+
+    return (
+        "Model-attention signal segment",
+        f"The model gradient was {intensity} concentrated in this time window for the predicted class.",
+    )
 
 
 def _build_saliency_points(normalized: np.ndarray, sample_rate: float, channels: list[str]) -> list[dict]:

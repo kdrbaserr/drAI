@@ -268,6 +268,7 @@ def _build_eeg_explainability(
             sample_rate_hz=preprocessing_info.get("sample_rate_hz"),
             channels=preprocessing_info.get("channels", []),
             target_label=label,
+            signal_type="eeg",
             method="saliency",
         )
     except Exception as exc:
