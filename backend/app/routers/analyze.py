@@ -16,7 +16,10 @@ from app.models.diagnosis import Diagnosis
 from app.models.user import User
 from app.routers.auth import get_current_user
 from app.schemas.analysis import AnalysisResponse, MEDICAL_DISCLAIMER
-from app.schemas.signal import build_standard_signal_metadata
+from app.schemas.signal import (
+    build_standard_signal_metadata,
+    normalize_signal_explainability,
+)
 
 router = APIRouter(prefix="/analyze", tags=["analyze"])
 
@@ -186,22 +189,31 @@ def _persist_analysis(
     model_version = inference_result.get("model_version", "experimental")
     inference_succeeded = inference_result.get("status") == "success"
     analysis_status = "completed" if inference_succeeded else "experimental"
+    prediction = inference_result.get("prediction", "Unknown")
+    confidence = inference_result.get("confidence", 0.0)
+    standard_signal = build_standard_signal_metadata(
+        signal_type=analysis_type,
+        filename=file.filename,
+        content_type=file.content_type,
+        preprocessing_info=inference_result.get("preprocessing_info", {}),
+        converter_warnings=inference_result.get("converter_warnings", []),
+    )
+    explainability = normalize_signal_explainability(
+        inference_result.get("explainability"),
+        standard_signal=standard_signal,
+        target_label=prediction,
+    )
     file_metadata = {
         "filename": file.filename,
         "filenames": upload_filenames or [file.filename],
         "content_type": file.content_type,
         "inference_status": inference_result.get("status"),
         "preprocessing": inference_result.get("preprocessing_info", {}),
-        "standard_signal": build_standard_signal_metadata(
-            signal_type=analysis_type,
-            filename=file.filename,
-            content_type=file.content_type,
-            preprocessing_info=inference_result.get("preprocessing_info", {}),
-            converter_warnings=inference_result.get("converter_warnings", []),
-        ).model_dump(mode="json"),
+        "standard_signal": standard_signal.model_dump(mode="json"),
+        "explainability": explainability.model_dump(mode="json"),
         "model_version": model_version,
-        "prediction": inference_result.get("prediction", "Unknown"),
-        "confidence": inference_result.get("confidence", 0.0),
+        "prediction": prediction,
+        "confidence": confidence,
         "probabilities": inference_result.get("all_probabilities", {}),
     }
 
@@ -217,8 +229,8 @@ def _persist_analysis(
     db.add(
         Diagnosis(
             analysis_id=analysis.id,
-            result=inference_result.get("prediction", "Unknown"),
-            confidence=inference_result.get("confidence", 0.0) * 100,
+            result=prediction,
+            confidence=confidence * 100,
             details=f"Model Version: {model_version}",
         )
     )

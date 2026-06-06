@@ -26,7 +26,12 @@ from app.models.analysis import Analysis
 from app.models.audit_log import AuditLog
 from app.models.user import User
 from app.routers.auth import get_current_user
-from app.schemas.signal import SourceFormat, StandardSignalMetadata, infer_source_format
+from app.schemas.signal import (
+    SignalExplainability,
+    SourceFormat,
+    StandardSignalMetadata,
+    infer_source_format,
+)
 from app.utils.security import create_access_token
 
 client = TestClient(app)
@@ -123,6 +128,37 @@ def test_standard_signal_metadata_contract_shape():
     assert infer_source_format("record.edf") == SourceFormat.EDF
 
 
+def test_signal_explainability_contract_shape_omits_normal_signal_by_default():
+    explainability = SignalExplainability(
+        method="saliency",
+        target_label="Atrial Fibrillation",
+        generated_from_model=True,
+        sample_rate_hz=500,
+        channels=["II"],
+        saliency_scores=[{"time": 1.2, "score": 0.91, "channel": "II"}],
+        highlight_zones=[
+            {
+                "id": "zone-1",
+                "start_time": 1.0,
+                "end_time": 1.6,
+                "severity": "red",
+                "score": 0.91,
+                "label": "High-attention rhythm segment",
+                "reason": "Model saliency peaked in this interval.",
+                "channel": "II",
+                "preview": [{"time": 1.2, "value": 0.42, "channel": "II"}],
+            }
+        ],
+    )
+
+    payload = explainability.model_dump(mode="json")
+    assert payload["schema_version"] == 1
+    assert payload["method"] == "saliency"
+    assert payload["display"]["normal_signal_policy"] == "omitted"
+    assert payload["highlight_zones"][0]["severity"] == "red"
+    assert payload["highlight_zones"][0]["preview"][0]["channel"] == "II"
+
+
 def test_protected_endpoint_requires_token():
     response = client.get("/api/v1/history")
 
@@ -190,6 +226,10 @@ def test_demo_flow_register_login_ecg_history_result_and_logout_guard(db_session
     assert uploaded["data"]["filename"] == "demo.dat"
     assert uploaded["data"]["standard_signal"]["signal_type"] == "ecg"
     assert uploaded["data"]["standard_signal"]["source_format"] == "wfdb"
+    assert uploaded["data"]["explainability"]["schema_version"] == 1
+    assert uploaded["data"]["explainability"]["method"] == "unavailable"
+    assert uploaded["data"]["explainability"]["display"]["normal_signal_policy"] == "omitted"
+    assert uploaded["data"]["explainability"]["highlight_zones"] == []
     assert uploaded["data"]["model_version"] == "1.0.0"
     assert uploaded["diagnosis"]["result"]
 
