@@ -36,7 +36,21 @@ export function getExplainability(result = {}) {
 
 export function getHighlightZones(result = {}) {
   const zones = getExplainability(result).highlight_zones;
-  return Array.isArray(zones) ? zones.filter((zone) => Array.isArray(zone.preview) && zone.preview.length > 1) : [];
+  if (!Array.isArray(zones)) return [];
+
+  return zones
+    .filter((zone) => Array.isArray(zone.preview) && zone.preview.length > 1)
+    .sort((a, b) => {
+      const severityDelta = severityRank(b.severity) - severityRank(a.severity);
+      if (severityDelta) return severityDelta;
+      return (Number(b.score) || 0) - (Number(a.score) || 0);
+    });
+}
+
+function severityRank(value) {
+  if (value === 'red') return 2;
+  if (value === 'yellow') return 1;
+  return 0;
 }
 
 export function getExplainabilityMethod(result = {}) {
