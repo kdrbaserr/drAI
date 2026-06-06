@@ -1,5 +1,5 @@
 import React from 'react';
-import { SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import Svg, { Line, Path, Rect } from 'react-native-svg';
 import { HeartbeatBackground } from '../components/HeartbeatBackground';
 import { BackButton, Card, Metric, Pill, ScreenTitle } from '../components/ui';
@@ -16,21 +16,24 @@ import {
   getProbabilities,
 } from '../utils/result';
 
-const WAVEFORM_WIDTH = 320;
 const WAVEFORM_HEIGHT = 92;
+const MOBILE_WAVEFORM_WIDTH = 320;
+const DESKTOP_WAVEFORM_WIDTH = 520;
 
 export function ResultScreen({ route, navigation }) {
+  const { width } = useWindowDimensions();
   const result = route.params?.result || mockResult;
   const confidence = getConfidence(result);
   const probabilities = getProbabilities(result);
   const highlightZones = getHighlightZones(result);
   const explainabilityMethod = getExplainabilityMethod(result);
   const explainabilityWarnings = getExplainabilityWarnings(result);
+  const isWide = width >= 760;
 
   return (
     <SafeAreaView style={styles.safe}>
       <HeartbeatBackground />
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, isWide && styles.contentWide]}>
         <BackButton onPress={() => navigation.goBack()} />
         <ScreenTitle
           eyebrow="Result"
@@ -71,6 +74,7 @@ export function ResultScreen({ route, navigation }) {
         </Card>
 
         <SignalExplanationCard
+          isWide={isWide}
           method={explainabilityMethod}
           warnings={explainabilityWarnings}
           zones={highlightZones}
@@ -91,8 +95,9 @@ export function ResultScreen({ route, navigation }) {
   );
 }
 
-function SignalExplanationCard({ method, warnings, zones }) {
+function SignalExplanationCard({ isWide, method, warnings, zones }) {
   const methodLabel = method === 'heuristic' ? 'signal scan' : method;
+  const waveformWidth = isWide ? DESKTOP_WAVEFORM_WIDTH : MOBILE_WAVEFORM_WIDTH;
 
   return (
     <Card style={styles.card}>
@@ -102,9 +107,14 @@ function SignalExplanationCard({ method, warnings, zones }) {
       </View>
 
       {zones.length ? (
-        <View style={styles.zoneList}>
+        <View style={[styles.zoneList, isWide && styles.zoneListWide]}>
           {zones.map((zone) => (
-            <SignalZoneCard key={zone.id || `${zone.start_time}-${zone.end_time}-${zone.channel}`} zone={zone} />
+            <SignalZoneCard
+              isWide={isWide}
+              key={zone.id || `${zone.start_time}-${zone.end_time}-${zone.channel}`}
+              waveformWidth={waveformWidth}
+              zone={zone}
+            />
           ))}
         </View>
       ) : (
@@ -116,14 +126,14 @@ function SignalExplanationCard({ method, warnings, zones }) {
   );
 }
 
-function SignalZoneCard({ zone }) {
+function SignalZoneCard({ isWide, waveformWidth, zone }) {
   const isRed = zone.severity === 'red';
   const tone = isRed ? 'red' : 'amber';
   const stroke = isRed ? colors.red : colors.amber;
   const range = formatTimeRange(zone.start_time, zone.end_time);
 
   return (
-    <View style={[styles.zoneCard, isRed ? styles.zoneRed : styles.zoneYellow]}>
+    <View style={[styles.zoneCard, isWide && styles.zoneCardWide, isRed ? styles.zoneRed : styles.zoneYellow]}>
       <View style={styles.zoneHeader}>
         <View style={styles.zoneTitleBlock}>
           <Text style={styles.zoneTitle}>{zone.label || 'Model-attention segment'}</Text>
@@ -132,21 +142,21 @@ function SignalZoneCard({ zone }) {
         <Pill label={zone.severity || 'zone'} tone={tone} />
       </View>
 
-      <WaveformPreview points={zone.preview} stroke={stroke} />
+      <WaveformPreview points={zone.preview} stroke={stroke} width={waveformWidth} />
 
       <Text style={styles.zoneReason}>{zone.reason}</Text>
     </View>
   );
 }
 
-function WaveformPreview({ points, stroke }) {
-  const path = buildWaveformPath(points, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
+function WaveformPreview({ points, stroke, width }) {
+  const path = buildWaveformPath(points, width, WAVEFORM_HEIGHT);
 
   return (
     <View style={styles.waveformFrame}>
-      <Svg width="100%" height={WAVEFORM_HEIGHT} viewBox={`0 0 ${WAVEFORM_WIDTH} ${WAVEFORM_HEIGHT}`}>
-        <Rect x="0" y="0" width={WAVEFORM_WIDTH} height={WAVEFORM_HEIGHT} rx="8" fill="rgba(255,255,255,0.035)" />
-        <Line x1="0" y1={WAVEFORM_HEIGHT / 2} x2={WAVEFORM_WIDTH} y2={WAVEFORM_HEIGHT / 2} stroke="rgba(255,255,255,0.13)" strokeWidth="1" />
+      <Svg width="100%" height={WAVEFORM_HEIGHT} viewBox={`0 0 ${width} ${WAVEFORM_HEIGHT}`}>
+        <Rect x="0" y="0" width={width} height={WAVEFORM_HEIGHT} rx="8" fill="rgba(255,255,255,0.035)" />
+        <Line x1="0" y1={WAVEFORM_HEIGHT / 2} x2={width} y2={WAVEFORM_HEIGHT / 2} stroke="rgba(255,255,255,0.13)" strokeWidth="1" />
         <Path d={path} fill="none" stroke={stroke} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
       </Svg>
     </View>
@@ -188,6 +198,11 @@ const styles = StyleSheet.create({
     gap: 15,
     padding: spacing.page,
     paddingTop: 26,
+  },
+  contentWide: {
+    alignSelf: 'center',
+    maxWidth: 1120,
+    width: '100%',
   },
   warning: {
     backgroundColor: colors.warningBg,
@@ -266,11 +281,21 @@ const styles = StyleSheet.create({
   zoneList: {
     gap: 12,
   },
+  zoneListWide: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
   zoneCard: {
     borderRadius: spacing.radius,
     borderWidth: 1,
+    flexGrow: 1,
     gap: 10,
+    minWidth: 0,
     padding: 11,
+  },
+  zoneCardWide: {
+    flexBasis: '48%',
+    minWidth: 330,
   },
   zoneRed: {
     backgroundColor: 'rgba(255,79,104,0.08)',
@@ -311,6 +336,7 @@ const styles = StyleSheet.create({
   },
   zoneReason: {
     color: colors.muted,
+    flexShrink: 1,
     fontSize: 12,
     lineHeight: 17,
   },
