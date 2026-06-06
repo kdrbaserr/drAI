@@ -333,6 +333,74 @@ def test_eeg_error_is_persisted_as_experimental(db_session, monkeypatch):
     assert audit_log.status == "experimental"
 
 
+def test_explainability_payload_is_persisted_and_returned_by_result_apis(db_session, monkeypatch):
+    explainability = {
+        "schema_version": 1,
+        "method": "saliency",
+        "generated_from_model": True,
+        "saliency_scores": [{"time": 0.25, "score": 0.8, "channel": "C3"}],
+        "highlight_zones": [
+            {
+                "id": "zone-1",
+                "start_time": 0.2,
+                "end_time": 0.7,
+                "severity": "red",
+                "score": 0.92,
+                "label": "EEG attention segment on C3",
+                "reason": "The model strongly focused on channel C3 in this time window.",
+                "channel": "C3",
+                "preview": [{"time": 0.25, "value": 0.12, "channel": "C3"}],
+            }
+        ],
+        "display": {
+            "normal_signal_policy": "omitted",
+            "max_highlight_zones": 5,
+            "context_window_sec": 0.4,
+        },
+        "warnings": [],
+    }
+    monkeypatch.setattr(
+        analyze_router,
+        "predict_eeg",
+        lambda _: {
+            "status": "success",
+            "prediction": "left_fist",
+            "confidence": 0.86,
+            "model_version": "1.0.0-lora-merged-runtime",
+            "all_probabilities": {"left_fist": 0.86, "rest": 0.14},
+            "preprocessing_info": {
+                "mode": "mne_edf_converter",
+                "sample_rate_hz": 256,
+                "channels": ["C3"],
+                "duration_sec": 2,
+                "matrix_shape": [1, 512],
+            },
+            "explainability": explainability,
+        },
+    )
+
+    upload = client.post(
+        "/api/v1/analyze/eeg",
+        files={"file": ("sample.edf", b"edf-data", "application/octet-stream")},
+    )
+
+    assert upload.status_code == 200
+    uploaded = upload.json()
+    persisted = db_session.query(Analysis).filter(Analysis.id == uploaded["id"]).one()
+    assert persisted.data["explainability"]["method"] == "saliency"
+    assert persisted.data["explainability"]["target_label"] == "left_fist"
+    assert persisted.data["explainability"]["sample_rate_hz"] == 256
+    assert persisted.data["explainability"]["highlight_zones"][0]["severity"] == "red"
+
+    detail = client.get(f"/api/v1/results/{uploaded['id']}")
+    history = client.get("/api/v1/history")
+
+    assert detail.status_code == 200
+    assert history.status_code == 200
+    assert detail.json()["data"]["explainability"]["highlight_zones"][0]["label"] == "EEG attention segment on C3"
+    assert history.json()[0]["data"]["explainability"]["display"]["normal_signal_policy"] == "omitted"
+
+
 def test_eeg_preprocessing_runs_before_experimental_model_fallback(monkeypatch):
     preprocessing_ran = {"value": False}
     model_attempted = {"value": False}
