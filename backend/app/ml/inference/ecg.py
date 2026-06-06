@@ -56,6 +56,15 @@ def predict_ecg(file_path: str):
         "confidence": probabilities[prediction],
         "all_probabilities": probabilities,
         "model_version": metadata.get("version", "unknown"),
+        "explainability": {
+            "method": "unavailable",
+            "generated_from_model": False,
+            "saliency_scores": [],
+            "highlight_zones": [],
+            "warnings": [
+                "ECG model explainability requires deployable model weights; the current ONNX file is a placeholder."
+            ],
+        },
         "preprocessing_info": preprocessing_info,
     }
 
