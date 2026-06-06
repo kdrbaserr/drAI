@@ -49,6 +49,7 @@ def predict_ecg(file_path: str):
     # presentation-friendly result instead of an empty "model unavailable" output.
     probabilities = _build_demo_probabilities(file_path, labels)
     prediction = max(probabilities, key=probabilities.get)
+    explainability = _build_ecg_explainability(file_path, metadata, prediction)
     return {
         "status": "success",
         "file_processed": file_path,
@@ -56,15 +57,7 @@ def predict_ecg(file_path: str):
         "confidence": probabilities[prediction],
         "all_probabilities": probabilities,
         "model_version": metadata.get("version", "unknown"),
-        "explainability": {
-            "method": "unavailable",
-            "generated_from_model": False,
-            "saliency_scores": [],
-            "highlight_zones": [],
-            "warnings": [
-                "ECG model explainability requires deployable model weights; the current ONNX file is a placeholder."
-            ],
-        },
+        "explainability": explainability,
         "preprocessing_info": preprocessing_info,
     }
 
@@ -171,6 +164,178 @@ def _build_signal_preprocessing_payload(mode: str, parsed: dict, metadata: dict)
         "signal_preview": _build_signal_preview(signal, sample_rate, parsed["channels"]),
         "converter_warnings": parsed["warnings"],
         "target_input_shape": metadata.get("input_shape"),
+    }
+
+
+def _build_ecg_explainability(file_path: str, metadata: dict, prediction: str) -> dict:
+    try:
+        parsed = _parse_ecg_signal_for_explainability(file_path)
+    except ValueError as exc:
+        return _unavailable_ecg_explainability(prediction, str(exc))
+
+    signal = parsed["signal"]
+    sample_rate = parsed["sample_rate_hz"] or metadata.get("sample_rate") or 500
+    channels = parsed["channels"]
+    zones = _build_ecg_heuristic_zones(signal, float(sample_rate), channels, prediction)
+    warnings = [
+        "ECG ONNX weights are not deployable yet; zones are generated from signal heuristics, not model gradients."
+    ]
+    return {
+        "schema_version": 1,
+        "method": "heuristic",
+        "target_label": prediction,
+        "generated_from_model": False,
+        "sample_rate_hz": float(sample_rate),
+        "channels": channels,
+        "saliency_scores": [],
+        "highlight_zones": zones,
+        "display": {
+            "normal_signal_policy": "omitted",
+            "max_highlight_zones": 5,
+            "context_window_sec": 0.4,
+        },
+        "warnings": warnings,
+    }
+
+
+def _parse_ecg_signal_for_explainability(file_path: str) -> dict:
+    extension = Path(file_path).suffix.lower()
+    if extension in {".csv", ".txt"}:
+        return _parse_numeric_ecg_file(file_path)
+    if extension in {".dat", ".hea"}:
+        return _parse_wfdb_record(file_path)
+    if extension == ".dcm":
+        return _parse_dicom_waveform(file_path)
+    if extension == ".xml":
+        return _parse_aecg_xml(file_path)
+    raise ValueError("ECG signal could not be parsed for highlight zones.")
+
+
+def _build_ecg_heuristic_zones(
+    signal: np.ndarray,
+    sample_rate: float,
+    channels: list[str],
+    prediction: str,
+) -> list[dict]:
+    if signal.ndim != 2 or signal.shape[1] < 8:
+        return []
+
+    channel_index = 0
+    lead = signal[channel_index].astype(np.float32)
+    lead = np.nan_to_num(lead, nan=0.0, posinf=0.0, neginf=0.0)
+    centered = lead - float(np.median(lead))
+    scale = float(np.percentile(np.abs(centered), 95)) or float(np.std(centered)) or 1.0
+    normalized = centered / scale
+    derivative = np.abs(np.diff(normalized, prepend=normalized[0]))
+    importance = np.clip((np.abs(normalized) * 0.7) + (derivative * 0.3), 0.0, None)
+
+    if float(importance.max(initial=0.0)) <= 0:
+        return []
+    importance = importance / float(np.percentile(importance, 98) or importance.max(initial=1.0))
+    importance = np.clip(importance, 0.0, 1.0)
+
+    sample_count = lead.shape[0]
+    window = max(8, min(sample_count, int(sample_rate * 0.5)))
+    stride = max(1, window // 2)
+    candidates = []
+    for start in range(0, max(1, sample_count - window + 1), stride):
+        end = min(sample_count, start + window)
+        window_scores = importance[start:end]
+        score = float((np.mean(window_scores) * 0.45) + (np.max(window_scores) * 0.55))
+        if score < 0.35:
+            continue
+        candidates.append({"start": start, "end": end, "score": score})
+
+    candidates.sort(key=lambda item: item["score"], reverse=True)
+    selected = []
+    for candidate in candidates:
+        if any(_window_overlap_ratio(candidate["start"], candidate["end"], item["start"], item["end"]) > 0.4 for item in selected):
+            continue
+        selected.append(candidate)
+        if len(selected) >= 5:
+            break
+
+    channel = channels[channel_index] if channels else "I"
+    zones = []
+    for index, candidate in enumerate(sorted(selected, key=lambda item: item["start"]), start=1):
+        severity = "red" if candidate["score"] >= 0.55 else "yellow"
+        label, reason = _ecg_heuristic_text(prediction, severity)
+        zones.append(
+            {
+                "id": f"ecg-zone-{index}",
+                "start_time": round(candidate["start"] / sample_rate, 4),
+                "end_time": round(candidate["end"] / sample_rate, 4),
+                "severity": severity,
+                "score": round(min(1.0, candidate["score"]), 4),
+                "label": label,
+                "reason": reason,
+                "channel": channel,
+                "preview": _build_zone_preview(lead[candidate["start"] : candidate["end"]], sample_rate, candidate["start"], channel),
+            }
+        )
+    return zones
+
+
+def _build_zone_preview(values: np.ndarray, sample_rate: float, start_sample: int, channel: str) -> list[dict]:
+    preview = []
+    if values.size == 0:
+        return preview
+    step = max(1, int(np.ceil(values.size / 80)))
+    for offset in range(0, values.size, step):
+        preview.append(
+            {
+                "time": round((start_sample + offset) / sample_rate, 4),
+                "value": round(float(values[offset]), 6),
+                "channel": channel,
+            }
+        )
+    return preview
+
+
+def _ecg_heuristic_text(prediction: str, severity: str) -> tuple[str, str]:
+    normalized = prediction.lower()
+    intensity = "strong" if severity == "red" else "moderate"
+    if "fibrillation" in normalized:
+        return (
+            "Irregular rhythm evidence",
+            f"Heuristic ECG screening found a {intensity} waveform deviation in this interval while reviewing rhythm irregularity.",
+        )
+    if "tachycardia" in normalized:
+        return (
+            "Fast rhythm evidence",
+            f"Heuristic ECG screening found a {intensity} waveform deviation in this interval while reviewing fast rhythm evidence.",
+        )
+    if "bradycardia" in normalized:
+        return (
+            "Slow rhythm evidence",
+            f"Heuristic ECG screening found a {intensity} waveform deviation in this interval while reviewing slow rhythm evidence.",
+        )
+    return (
+        "ECG waveform deviation",
+        f"Heuristic ECG screening found a {intensity} signal deviation in this interval.",
+    )
+
+
+def _window_overlap_ratio(start_a: int, end_a: int, start_b: int, end_b: int) -> float:
+    overlap = max(0, min(end_a, end_b) - max(start_a, start_b))
+    smaller = max(1, min(end_a - start_a, end_b - start_b))
+    return overlap / smaller
+
+
+def _unavailable_ecg_explainability(prediction: str, warning: str) -> dict:
+    return {
+        "schema_version": 1,
+        "method": "unavailable",
+        "target_label": prediction,
+        "generated_from_model": False,
+        "saliency_scores": [],
+        "highlight_zones": [],
+        "display": {
+            "normal_signal_policy": "omitted",
+            "max_highlight_zones": 5,
+            "context_window_sec": 0.4,
+        },
+        "warnings": [warning],
     }
 
 

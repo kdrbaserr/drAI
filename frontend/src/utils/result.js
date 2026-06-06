@@ -30,6 +30,24 @@ export function getProbabilities(result = {}) {
     .sort((a, b) => b.value - a.value);
 }
 
+export function getExplainability(result = {}) {
+  return result.data?.explainability || {};
+}
+
+export function getHighlightZones(result = {}) {
+  const zones = getExplainability(result).highlight_zones;
+  return Array.isArray(zones) ? zones.filter((zone) => Array.isArray(zone.preview) && zone.preview.length > 1) : [];
+}
+
+export function getExplainabilityMethod(result = {}) {
+  return getExplainability(result).method || 'unavailable';
+}
+
+export function getExplainabilityWarnings(result = {}) {
+  const warnings = getExplainability(result).warnings;
+  return Array.isArray(warnings) ? warnings : [];
+}
+
 export function formatDate(value) {
   if (!value) return 'Bilinmiyor';
   const date = new Date(value);

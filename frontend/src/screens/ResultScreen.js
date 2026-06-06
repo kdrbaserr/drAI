@@ -1,15 +1,31 @@
 import React from 'react';
 import { SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Svg, { Line, Path, Rect } from 'react-native-svg';
 import { HeartbeatBackground } from '../components/HeartbeatBackground';
 import { BackButton, Card, Metric, Pill, ScreenTitle } from '../components/ui';
 import { MEDICAL_DISCLAIMER, mockResult } from '../data/mockData';
 import { colors, spacing } from '../styles/theme';
-import { formatDate, getConfidence, getModelVersion, getPrediction, getProbabilities } from '../utils/result';
+import {
+  formatDate,
+  getConfidence,
+  getExplainabilityMethod,
+  getExplainabilityWarnings,
+  getHighlightZones,
+  getModelVersion,
+  getPrediction,
+  getProbabilities,
+} from '../utils/result';
+
+const WAVEFORM_WIDTH = 320;
+const WAVEFORM_HEIGHT = 92;
 
 export function ResultScreen({ route, navigation }) {
   const result = route.params?.result || mockResult;
   const confidence = getConfidence(result);
   const probabilities = getProbabilities(result);
+  const highlightZones = getHighlightZones(result);
+  const explainabilityMethod = getExplainabilityMethod(result);
+  const explainabilityWarnings = getExplainabilityWarnings(result);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -54,6 +70,12 @@ export function ResultScreen({ route, navigation }) {
           </View>
         </Card>
 
+        <SignalExplanationCard
+          method={explainabilityMethod}
+          warnings={explainabilityWarnings}
+          zones={highlightZones}
+        />
+
         <Card style={styles.card}>
           <Text style={styles.sectionTitle}>Risk/severity ön görünümü</Text>
           <Text style={styles.copy}>
@@ -67,6 +89,94 @@ export function ResultScreen({ route, navigation }) {
       </ScrollView>
     </SafeAreaView>
   );
+}
+
+function SignalExplanationCard({ method, warnings, zones }) {
+  const methodLabel = method === 'heuristic' ? 'signal scan' : method;
+
+  return (
+    <Card style={styles.card}>
+      <View style={styles.sectionTop}>
+        <Text style={styles.sectionTitle}>Problemli sinyal bölgeleri</Text>
+        <Pill label={zones.length ? `${zones.length} segment` : methodLabel} tone={zones.length ? 'amber' : 'green'} />
+      </View>
+
+      {zones.length ? (
+        <View style={styles.zoneList}>
+          {zones.map((zone) => (
+            <SignalZoneCard key={zone.id || `${zone.start_time}-${zone.end_time}-${zone.channel}`} zone={zone} />
+          ))}
+        </View>
+      ) : (
+        <Text style={styles.copy}>
+          {warnings[0] || 'Bu analiz için red/yellow sinyal segmenti henüz üretilmedi.'}
+        </Text>
+      )}
+    </Card>
+  );
+}
+
+function SignalZoneCard({ zone }) {
+  const isRed = zone.severity === 'red';
+  const tone = isRed ? 'red' : 'amber';
+  const stroke = isRed ? colors.red : colors.amber;
+  const range = formatTimeRange(zone.start_time, zone.end_time);
+
+  return (
+    <View style={[styles.zoneCard, isRed ? styles.zoneRed : styles.zoneYellow]}>
+      <View style={styles.zoneHeader}>
+        <View style={styles.zoneTitleBlock}>
+          <Text style={styles.zoneTitle}>{zone.label || 'Model-attention segment'}</Text>
+          <Text style={styles.zoneMeta}>{[range, zone.channel].filter(Boolean).join('  |  ')}</Text>
+        </View>
+        <Pill label={zone.severity || 'zone'} tone={tone} />
+      </View>
+
+      <WaveformPreview points={zone.preview} stroke={stroke} />
+
+      <Text style={styles.zoneReason}>{zone.reason}</Text>
+    </View>
+  );
+}
+
+function WaveformPreview({ points, stroke }) {
+  const path = buildWaveformPath(points, WAVEFORM_WIDTH, WAVEFORM_HEIGHT);
+
+  return (
+    <View style={styles.waveformFrame}>
+      <Svg width="100%" height={WAVEFORM_HEIGHT} viewBox={`0 0 ${WAVEFORM_WIDTH} ${WAVEFORM_HEIGHT}`}>
+        <Rect x="0" y="0" width={WAVEFORM_WIDTH} height={WAVEFORM_HEIGHT} rx="8" fill="rgba(255,255,255,0.035)" />
+        <Line x1="0" y1={WAVEFORM_HEIGHT / 2} x2={WAVEFORM_WIDTH} y2={WAVEFORM_HEIGHT / 2} stroke="rgba(255,255,255,0.13)" strokeWidth="1" />
+        <Path d={path} fill="none" stroke={stroke} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    </View>
+  );
+}
+
+function buildWaveformPath(points = [], width, height) {
+  if (!points.length) return '';
+  const values = points.map((point) => Number(point.value) || 0);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = Math.max(0.000001, max - min);
+  const xStep = points.length > 1 ? width / (points.length - 1) : width;
+  const verticalPadding = 12;
+  const usableHeight = height - verticalPadding * 2;
+
+  return values
+    .map((value, index) => {
+      const x = Math.round(index * xStep * 100) / 100;
+      const y = Math.round((verticalPadding + (1 - (value - min) / span) * usableHeight) * 100) / 100;
+      return `${index === 0 ? 'M' : 'L'} ${x} ${y}`;
+    })
+    .join(' ');
+}
+
+function formatTimeRange(start, end) {
+  const startNum = Number(start);
+  const endNum = Number(end);
+  if (!Number.isFinite(startNum) || !Number.isFinite(endNum)) return '';
+  return `${startNum.toFixed(2)}s-${endNum.toFixed(2)}s`;
 }
 
 const styles = StyleSheet.create({
@@ -105,6 +215,7 @@ const styles = StyleSheet.create({
   sectionTop: {
     alignItems: 'center',
     flexDirection: 'row',
+    gap: 10,
     justifyContent: 'space-between',
   },
   sectionTitle: {
@@ -151,6 +262,57 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 13,
     lineHeight: 19,
+  },
+  zoneList: {
+    gap: 12,
+  },
+  zoneCard: {
+    borderRadius: spacing.radius,
+    borderWidth: 1,
+    gap: 10,
+    padding: 11,
+  },
+  zoneRed: {
+    backgroundColor: 'rgba(255,79,104,0.08)',
+    borderColor: 'rgba(255,79,104,0.32)',
+  },
+  zoneYellow: {
+    backgroundColor: 'rgba(255,207,107,0.08)',
+    borderColor: 'rgba(255,207,107,0.32)',
+  },
+  zoneHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'space-between',
+  },
+  zoneTitleBlock: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0,
+  },
+  zoneTitle: {
+    color: colors.text,
+    flexShrink: 1,
+    fontSize: 14,
+    fontWeight: '900',
+    lineHeight: 18,
+  },
+  zoneMeta: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '800',
+    lineHeight: 15,
+  },
+  waveformFrame: {
+    borderRadius: spacing.radius,
+    height: WAVEFORM_HEIGHT,
+    overflow: 'hidden',
+  },
+  zoneReason: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
   },
   severityTrack: {
     backgroundColor: 'rgba(255,255,255,0.08)',
