@@ -2,6 +2,8 @@ from datetime import timedelta
 from jose import JWTError, jwt
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.schemas.user import UserCreate, UserResponse
 from app.schemas.token import Token, TokenData
@@ -43,25 +45,45 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
 
 @router.post("/register", response_model=UserResponse)
 def register(user_in: UserCreate, db: Session = Depends(get_db)):
-    existing_user = db.query(User).filter(User.username == user_in.username).first()
+    existing_user = (
+        db.query(User)
+        .filter(or_(User.username == user_in.username, User.email == user_in.email))
+        .first()
+    )
     if existing_user:
+        detail = (
+            "Email already registered"
+            if existing_user.email == user_in.email
+            else "Username already registered"
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username already registered"
+            detail=detail
         )
     
     hashed_password = get_password_hash(user_in.password)
     db_user = User(username=user_in.username, email=user_in.email, hashed_password=hashed_password)
     
-    db.add(db_user)
-    db.commit()
+    try:
+        db.add(db_user)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username or email already registered"
+        )
     db.refresh(db_user)
     
     return UserResponse(username=db_user.username, email=db_user.email)
 
 @router.post("/login", response_model=Token)
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == form_data.username).first()
+    user = (
+        db.query(User)
+        .filter(or_(User.username == form_data.username, User.email == form_data.username))
+        .first()
+    )
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

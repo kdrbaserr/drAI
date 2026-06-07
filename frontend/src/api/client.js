@@ -49,6 +49,10 @@ export function getApiErrorMessage(error, fallback = 'Bir hata olustu. Lutfen te
       return 'Bu kullanici adi zaten kayitli.';
     }
 
+    if (detail.includes('Email already registered')) {
+      return 'Bu e-posta zaten kayitli.';
+    }
+
     if (detail.includes('Could not validate credentials')) {
       return 'Oturum dogrulanamadi. Lutfen tekrar giris yap.';
     }
